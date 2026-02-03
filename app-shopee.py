@@ -132,23 +132,16 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         if not encontrado: resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
     return resultados
 
-# --- IA: MOTOR DE ANALISE (v3.20 - BLINDAGEM CONTRA CLIENTERROR) ---
+# --- IA: MOTOR DE ANALISE (v3.21 - DIAGNÓSTICO ATIVADO) ---
 def inicializar_ia():
     try: return genai.Client(api_key=st.secrets["GEMINI_API_KEY"], http_options=HttpOptions(api_version='v1'))
     except: return None
 
 def gerar_resumo_estatico_ia(df):
-    """Gera o resumo de todas as gaiolas uma única vez para evitar sobrecarga na API"""
     try:
-        col_g_idx, col_e_idx = None, None
-        for i, col_name in enumerate(df.columns):
-            c_name = str(col_name).upper()
-            if col_g_idx is None and any(t in c_name for t in ['GAIOLA', 'LETRA', 'CANISTER']): col_g_idx = i
-            if col_e_idx is None and any(t in c_name for t in ['ADDRESS', 'ENDERE', 'LOGRA', 'RUA']): col_e_idx = i
+        col_g_idx = next((i for i, c in enumerate(df.columns) if any(t in str(c).upper() for t in ['GAIOLA', 'LETRA', 'CANISTER'])), 0)
+        col_e_idx = next((i for i, c in enumerate(df.columns) if any(t in str(c).upper() for t in ['ADDRESS', 'ENDERE', 'LOGRA', 'RUA'])), 0)
         
-        if col_g_idx is None: col_g_idx = 0
-        if col_e_idx is None: col_e_idx = 0
-
         temp_df = df.copy()
         temp_df['B_STOP'] = temp_df.iloc[:, col_e_idx].apply(extrair_base_endereco)
         
@@ -157,21 +150,21 @@ def gerar_resumo_estatico_ia(df):
             Paradas=('B_STOP', 'nunique')
         ).reset_index()
         
-        texto_resumo = "TABELA GERAL DE GAIOLAS (MATEMÁTICA EXATA):\n"
+        texto_resumo = "TABELA GERAL DE GAIOLAS:\n"
         for _, row in resumo.iterrows():
             texto_resumo += f"- Gaiola {row[0]}: {row['Pacotes']} pacotes, {row['Paradas']} paradas.\n"
         return texto_resumo
-    except:
-        return "Erro ao processar resumo matemático."
+    except Exception as e:
+        return f"Erro no processamento do resumo: {str(e)}"
 
 def agente_ia_treinado(client, df, pergunta):
     try:
-        # 1. Garantir que o resumo geral existe
+        # 1. Garantir resumo matemático
         if st.session_state.resumo_ia is None:
             st.session_state.resumo_ia = gerar_resumo_estatico_ia(df)
 
-        # 2. Contexto específico para gaiola citada
-        contexto_especifico = ""
+        # 2. Contexto de Bairros (v3.18)
+        contexto_bairros = ""
         match_gaiola = re.search(r'([A-Z][- ]?\d+)', pergunta.upper())
         if match_gaiola:
             g_alvo = limpar_string(match_gaiola.group(1))
@@ -181,31 +174,32 @@ def agente_ia_treinado(client, df, pergunta):
             df_target = df[df.iloc[:, col_g_idx].astype(str).apply(limpar_string) == g_alvo]
             if not df_target.empty and col_b_idx is not None:
                 bairros = df_target.iloc[:, col_b_idx].dropna().astype(str).apply(remover_acentos).unique().tolist()
-                contexto_especifico = f"DETALHES DA GAIOLA {g_alvo}: Bairros atendidos: {', '.join(bairros)}."
+                contexto_bairros = f"BAIRROS DA GAIOLA {g_alvo}: {', '.join(bairros)}."
 
-        prompt_base = f"""Você é o Waze Humano. 
-        REGRAS DE OURO:
-        1. Use a TABELA GERAL abaixo para comparações (quem tem mais/menos paradas).
-        2. Se perguntarem sobre gaiolas iniciadas por uma letra, filtre os dados da tabela.
-        3. Não tente ler o romaneio bruto; use apenas os dados resumidos fornecidos.
-        4. Resposta curta e direta ao ponto.
-        
+        prompt_base = f"""Você é o Waze Humano, estrategista de logística.
+        Use estes dados calculados para responder:
         {st.session_state.resumo_ia}
-        {contexto_especifico}
+        {contexto_bairros}
+        
+        INSTRUÇÕES:
+        - Para comparações (mais/menos paradas), use a TABELA GERAL.
+        - Se encontrar bairros com grafias parecidas, agrupe-os.
+        - Seja direto e profissional.
         """
         
         response = client.models.generate_content(model='gemini-1.5-flash', contents=f"{prompt_base}\nPergunta: {pergunta}")
         return response.text
     except Exception as e:
-        return "⚠️ O sistema de IA encontrou uma instabilidade temporária. Por favor, tente refazer a pergunta em instantes."
+        # MODO DE DIAGNÓSTICO: Mostra o erro real na tela
+        st.error(f"Erro detectado no Agente IA: {str(e)}")
+        return "⚠️ Ocorreu um erro técnico. O detalhe foi exibido acima para análise."
 
-# --- INTERFACE (PRESERVADA) ---
+# --- INTERFACE ---
 arquivo_upload = st.file_uploader("Upload", type=["xlsx"], label_visibility="collapsed", key="romaneio_upload")
 
 if arquivo_upload:
     if st.session_state.df_cache is None: 
         st.session_state.df_cache = pd.read_excel(arquivo_upload)
-        # Ao carregar, já prepara o resumo da IA para evitar ClientError futuro
         st.session_state.resumo_ia = gerar_resumo_estatico_ia(st.session_state.df_cache)
         
     df_completo = st.session_state.df_cache
@@ -214,9 +208,9 @@ if arquivo_upload:
     tab1, tab2, tab3 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "🤖 Agente IA"])
 
     with tab1:
-        st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Gerar rota detalhada.</div>', unsafe_allow_html=True)
-        g_unica = st.text_input("Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
-        if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1", use_container_width=True):
+        st.markdown('<div class="info-box"><strong>🎯 Gaiola Única:</strong> Gerar rota individual.</div>', unsafe_allow_html=True)
+        g_unica = st.text_input("Digite o código", placeholder="Ex: B-50", key="gui_input").strip().upper()
+        if st.button("🚀 PROCESSAR GAIOLA", key="btn_u", use_container_width=True):
             st.session_state.modo_atual = 'unica'
             target = limpar_string(g_unica); enc = False
             for aba in xl.sheet_names:
@@ -228,17 +222,17 @@ if arquivo_upload:
                         enc = True; buf = io.BytesIO()
                         with pd.ExcelWriter(buf, engine='openpyxl') as w: res['dataframe'].to_excel(w, index=False)
                         st.session_state.dados_prontos = buf.getvalue(); st.session_state.df_visual_tab1 = res['dataframe']; st.session_state.metricas_tab1 = res; break
-            if not enc: st.error("Não encontrada.")
+            if not enc: st.error("Gaiola não encontrada.")
         
         if st.session_state.modo_atual == 'unica' and st.session_state.dados_prontos:
             m = st.session_state.metricas_tab1; c = st.columns(3)
             c[0].metric("📦 Pacotes", m["pacotes"]); c[1].metric("📍 Paradas", m["paradas"]); c[2].metric("🏪 Comércios", m["comercios"])
             st.dataframe(st.session_state.df_visual_tab1, use_container_width=True, hide_index=True)
-            st.download_button("📥 BAIXAR PLANILHA", st.session_state.dados_prontos, f"Rota_{g_unica}.xlsx", use_container_width=True)
+            st.download_button("📥 BAIXAR ROTA", st.session_state.dados_prontos, f"Rota_{g_unica}.xlsx", use_container_width=True)
 
     with tab2:
-        cod_m = st.text_area("Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_tab2")
-        if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m_tab2", use_container_width=True):
+        cod_m = st.text_area("Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_input")
+        if st.button("📊 PROCESSAR LOTE", key="btn_m", use_container_width=True):
             st.session_state.modo_atual = 'multiplas'
             lista = [c.strip().upper() for c in cod_m.split('\n') if c.strip()]
             if lista: st.session_state.resultado_multiplas = processar_multiplas_gaiolas(arquivo_upload, lista)
@@ -249,14 +243,14 @@ if arquivo_upload:
             
             g_enc = [k for k, v in res.items() if v['encontrado']]
             if g_enc:
-                st.markdown("---"); st.markdown("##### ✅ Selecione para download individual:")
+                st.markdown("---")
                 selecionadas = []
                 cols = st.columns(3)
                 for i, g in enumerate(g_enc):
                     with cols[i % 3]:
-                        if st.checkbox(f"**{g}**", key=f"chk_m_{g}"): selecionadas.append(g)
+                        if st.checkbox(f"**{g}**", key=f"chk_{g}"): selecionadas.append(g)
                 
-                if selecionadas and st.button("📥 PREPARAR ARQUIVOS CIRCUIT"):
+                if selecionadas and st.button("📥 PREPARAR DOWNLOADS", key="btn_prep"):
                     st.session_state.planilhas_sessao = {}
                     for s in selecionadas:
                         target_l = limpar_string(s)
@@ -272,19 +266,19 @@ if arquivo_upload:
                                     break
                 
                 if st.session_state.planilhas_sessao:
-                    st.markdown("##### 📥 Downloads Prontos:")
+                    st.markdown("##### 📥 Arquivos Gerados:")
                     cols_dl = st.columns(3)
                     for idx, (nome, data) in enumerate(st.session_state.planilhas_sessao.items()):
                         with cols_dl[idx % 3]:
-                            st.download_button(label=f"📄 Rota {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
+                            st.download_button(label=f"📄 Rota {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_{nome}", use_container_width=True)
 
-    with tab3: # IA CALIBRADA v3.20
-        p_ia = st.text_input("Dúvida logística:", key="p_ia_tab3")
-        if st.button("🧠 CONSULTAR AGENTE IA", use_container_width=True, key="btn_ia_tab3"):
+    with tab3:
+        p_ia = st.text_input("Dúvida sobre o romaneio:", key="ia_input")
+        if st.button("🧠 CONSULTAR AGENTE", use_container_width=True):
             cli = inicializar_ia()
             if cli:
-                with st.spinner("Consultando dados comparativos..."):
+                with st.spinner("O Agente está analisando as rotas..."):
                     st.markdown(f'<div class="success-box">{agente_ia_treinado(cli, df_completo, p_ia)}</div>', unsafe_allow_html=True)
-            else: st.error("API Key ausente.")
+            else: st.error("API Key (Secrets) não configurada.")
 else:
-    st.info("📁 Aguardando romaneio.")
+    st.info("📁 Aguardando romaneio para iniciar a operação.")
