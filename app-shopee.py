@@ -4,8 +4,7 @@ import io
 import unicodedata
 import re
 from typing import List, Dict, Optional
-from google import genai
-from google.genai.types import HttpOptions
+import google.generativeai as genai  # MUDANÇA PARA BIBLIOTECA ESTÁVEL
 
 # --- CONFIGURAÇÃO DA PÁGINA (MARCO ZERO) ---
 st.set_page_config(
@@ -56,7 +55,7 @@ st.markdown("""
 
 st.markdown('<div class="header-container"><h1 class="main-title">Filtro de Rotas e Paradas</h1></div>', unsafe_allow_html=True)
 
-# --- SESSÃO ---
+# --- ESTADO DA SESSÃO ---
 if 'df_cache' not in st.session_state: st.session_state.df_cache = None
 if 'resumo_ia' not in st.session_state: st.session_state.resumo_ia = None
 if 'modo_atual' not in st.session_state: st.session_state.modo_atual = 'unica'
@@ -112,23 +111,12 @@ def processar_gaiola_unica(df_raw: pd.DataFrame, gaiola_alvo: str, col_gaiola_id
         return {'dataframe': saida, 'pacotes': len(saida), 'paradas': len(mapa_stops), 'comercios': len(saida[saida['Tipo'] == "🏪 Comércio"])}
     except: return None
 
-# --- IA (v3.24 - CORRIGIDO) ---
-def inicializar_ia():
-    """
-    CORREÇÃO v3.24: Especifica api_version='v1alpha' para usar gemini-1.5-flash
-    Alternativa: usar gemini-2.0-flash-exp que funciona em v1beta
-    """
+# --- IA BLINDADA (v3.24) ---
+def configurar_ia():
     try:
-        return genai.Client(
-            api_key=st.secrets["GEMINI_API_KEY"],
-            http_options=HttpOptions(api_version='v1alpha')  # CORREÇÃO: v1alpha suporta gemini-1.5-flash
-        )
-    except KeyError:
-        st.error("❌ Configure GEMINI_API_KEY em .streamlit/secrets.toml")
-        return None
-    except Exception as e:
-        st.error(f"❌ Erro ao inicializar IA: {e}")
-        return None
+        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        return genai.GenerativeModel('gemini-1.5-flash')
+    except: return None
 
 def gerar_resumo_estatico_ia(df):
     try:
@@ -141,55 +129,36 @@ def gerar_resumo_estatico_ia(df):
         for _, row in resumo.iterrows():
             texto += f"- Gaiola {row[0]}: {row['Pacotes']} pacotes, {row['Paradas']} paradas.\n"
         return texto
-    except: return "Erro no resumo."
+    except: return "Erro no processamento matemático."
 
-def agente_ia_treinado(client, df, pergunta):
-    """
-    CORREÇÃO v3.24: Mantém gemini-1.5-flash com v1alpha configurado
-    """
+def agente_ia_treinado(model, df, pergunta):
     try:
-        if st.session_state.resumo_ia is None: 
-            st.session_state.resumo_ia = gerar_resumo_estatico_ia(df)
-        
+        if st.session_state.resumo_ia is None: st.session_state.resumo_ia = gerar_resumo_estatico_ia(df)
         contexto_b = ""
         match = re.search(r'([A-Z][- ]?\d+)', pergunta.upper())
-        
         if match:
             g_alvo = limpar_string(match.group(1))
             col_g = next((i for i, c in enumerate(df.columns) if any(t in str(c).upper() for t in ['GAIOLA', 'LETRA'])), 0)
             col_b = next((i for i, c in enumerate(df.columns) if any(t in str(c).upper() for t in ['BAIRRO', 'NEIGHBORHOOD'])), None)
             df_target = df[df.iloc[:, col_g].astype(str).apply(limpar_string) == g_alvo]
-            
             if not df_target.empty and col_b is not None:
                 bairros = df_target.iloc[:, col_b].dropna().astype(str).apply(remover_acentos).unique().tolist()
                 contexto_b = f"BAIRROS DA {g_alvo}: {', '.join(bairros)}."
 
-        prompt = f"Você é o Waze Humano. Dados:\n{st.session_state.resumo_ia}\n{contexto_b}\nResponda logisticamente: {pergunta}"
-        
-        # CORREÇÃO: gemini-1.5-flash funciona com v1alpha
-        response = client.models.generate_content(
-            model='gemini-1.5-flash', 
-            contents=prompt
-        )
-        
+        prompt = f"Você é o Waze Humano, estrategista de rotas. Use estes dados:\n{st.session_state.resumo_ia}\n{contexto_b}\nResponda logisticamente: {pergunta}"
+        response = model.generate_content(prompt)
         return response.text
-    
     except Exception as e:
-        # Tratamento de erro melhorado
-        erro_msg = str(e)
-        if "404" in erro_msg or "NOT_FOUND" in erro_msg:
-            return "⚠️ Erro de conexão com a IA. Verifique se a API key está configurada corretamente."
-        else:
-            return f"⚠️ Erro: {erro_msg}"
+        st.error(f"Erro na conexão blindada: {str(e)}")
+        return "⚠️ Tente novamente."
 
 # --- INTERFACE ---
 arquivo = st.file_uploader("Upload", type=["xlsx"], label_visibility="collapsed")
 
 if arquivo:
     if st.session_state.df_cache is None:
-        with st.spinner("📊 Carregando romaneio..."):
-            st.session_state.df_cache = pd.read_excel(arquivo)
-            st.session_state.resumo_ia = gerar_resumo_estatico_ia(st.session_state.df_cache)
+        st.session_state.df_cache = pd.read_excel(arquivo)
+        st.session_state.resumo_ia = gerar_resumo_estatico_ia(st.session_state.df_cache)
     
     df_completo = st.session_state.df_cache
     xl = pd.ExcelFile(arquivo)
@@ -198,186 +167,74 @@ if arquivo:
     with t1:
         g = st.text_input("Gaiola", key="g_u").strip().upper()
         if st.button("🚀 GERAR", key="b_u", use_container_width=True):
-            if not g:
-                st.warning("⚠️ Digite um código de gaiola.")
-            else:
-                st.session_state.modo_atual = 'unica'
-                encontrado = False
-                
-                with st.spinner(f"⚙️ Processando gaiola {g}..."):
-                    for aba in xl.sheet_names:
-                        df_r = pd.read_excel(xl, sheet_name=aba, header=None)
-                        idx = next((c for c in df_r.columns if df_r[c].astype(str).apply(limpar_string).eq(limpar_string(g)).any()), None)
-                        
-                        if idx is not None:
-                            res = processar_gaiola_unica(df_r, g, idx)
-                            if res:
-                                buf = io.BytesIO()
-                                with pd.ExcelWriter(buf, engine='openpyxl') as w: 
-                                    res['dataframe'].to_excel(w, index=False)
-                                
-                                st.session_state.dados_prontos = buf.getvalue()
-                                st.session_state.df_visual_tab1 = res['dataframe']
-                                st.session_state.metricas_tab1 = res
-                                encontrado = True
-                                break
-                
-                if not encontrado:
-                    st.error(f"❌ Gaiola '{g}' não encontrada.")
-        
+            st.session_state.modo_atual = 'unica'
+            for aba in xl.sheet_names:
+                df_r = pd.read_excel(xl, sheet_name=aba, header=None)
+                idx = next((c for c in df_r.columns if df_r[c].astype(str).apply(limpar_string).eq(limpar_string(g)).any()), None)
+                if idx is not None:
+                    res = processar_gaiola_unica(df_r, g, idx)
+                    if res:
+                        buf = io.BytesIO()
+                        with pd.ExcelWriter(buf) as w: res['dataframe'].to_excel(w, index=False)
+                        st.session_state.dados_prontos = buf.getvalue(); st.session_state.df_visual_tab1 = res['dataframe']; st.session_state.metricas_tab1 = res; break
         if st.session_state.modo_atual == 'unica' and st.session_state.dados_prontos:
-            st.markdown("---")
-            m = st.session_state.metricas_tab1
-            c = st.columns(3)
-            c[0].metric("📦 Pacotes", m["pacotes"])
-            c[1].metric("📍 Paradas", m["paradas"])
-            c[2].metric("🏪 Comércios", m["comercios"])
-            st.dataframe(st.session_state.df_visual_tab1, use_container_width=True, hide_index=True, height=400)
-            st.download_button("📥 BAIXAR PLANILHA", st.session_state.dados_prontos, f"Rota_{g}.xlsx", use_container_width=True)
+            m = st.session_state.metricas_tab1; c = st.columns(3)
+            c[0].metric("📦 Pacotes", m["pacotes"]); c[1].metric("📍 Paradas", m["paradas"]); c[2].metric("🏪 Comércios", m["comercios"])
+            st.dataframe(st.session_state.df_visual_tab1, use_container_width=True, hide_index=True)
+            st.download_button("📥 BAIXAR", st.session_state.dados_prontos, f"Rota_{g}.xlsx", use_container_width=True)
 
     with t2:
-        lista = st.text_area("Gaiolas (uma por linha)", key="l_m", height=150, placeholder="A-36\nA-37\nA-38")
-        
+        lista = st.text_area("Gaiolas", key="l_m")
         if st.button("📊 PROCESSAR", key="b_m", use_container_width=True):
+            st.session_state.modo_atual = 'multiplas'
             gaiolas = [c.strip().upper() for c in lista.split('\n') if c.strip()]
-            
-            if not gaiolas:
-                st.warning("⚠️ Digite pelo menos uma gaiola.")
-            else:
-                st.session_state.modo_atual = 'multiplas'
-                
-                with st.spinner(f"⚙️ Processando {len(gaiolas)} gaiola(s)..."):
-                    res_l = {}
-                    
-                    for gn in gaiolas:
-                        target = limpar_string(gn)
-                        enc = False
-                        
-                        for aba in xl.sheet_names:
-                            df_r = pd.read_excel(xl, sheet_name=aba, header=None)
-                            idx = next((c for c in df_r.columns if df_r[c].astype(str).apply(limpar_string).eq(target).any()), None)
-                            
-                            if idx is not None:
-                                r = processar_gaiola_unica(df_r, gn, idx)
-                                if r:
-                                    res_l[gn] = {
-                                        'pacotes': r['pacotes'], 
-                                        'paradas': r['paradas'], 
-                                        'encontrado': True
-                                    }
-                                    enc = True
-                                    break
-                        
-                        if not enc:
-                            res_l[gn] = {'pacotes': 0, 'paradas': 0, 'encontrado': False}
-                    
-                    st.session_state.resultado_multiplas = res_l
+            if gaiolas:
+                res_l = {}
+                for gn in gaiolas:
+                    target = limpar_string(gn); enc = False
+                    for aba in xl.sheet_names:
+                        df_r = pd.read_excel(xl, sheet_name=aba, header=None)
+                        idx = next((c for c in df_r.columns if df_r[c].astype(str).apply(limpar_string).eq(target).any()), None)
+                        if idx is not None:
+                            r = processar_gaiola_unica(df_r, gn, idx)
+                            if r: res_l[gn] = {'pacotes': r['pacotes'], 'paradas': r['paradas'], 'encontrado': True}; enc = True; break
+                    if not enc: res_l[gn] = {'pacotes': 0, 'paradas': 0, 'encontrado': False}
+                st.session_state.resultado_multiplas = res_l
 
         if st.session_state.modo_atual == 'multiplas' and st.session_state.resultado_multiplas:
-            st.markdown("---")
             res = st.session_state.resultado_multiplas
-            
-            # Contagem
-            encontradas = sum(1 for v in res.values() if v['encontrado'])
-            st.metric("🎯 Gaiolas Encontradas", f"{encontradas}/{len(res)}")
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown("##### 📋 Resumo")
-            
-            df_resumo = pd.DataFrame([
-                {
-                    'Gaiola': k, 
-                    'Status': '✅' if v['encontrado'] else '❌', 
-                    'Pacotes': v['pacotes'], 
-                    'Paradas': v['paradas']
-                } 
-                for k, v in res.items()
-            ])
-            
-            st.dataframe(df_resumo, use_container_width=True, hide_index=True, height=400)
-            
-            # Download resumo
-            buffer_resumo = io.BytesIO()
-            with pd.ExcelWriter(buffer_resumo, engine='openpyxl') as writer:
-                df_resumo.to_excel(writer, index=False, sheet_name='Resumo')
-            
-            st.download_button(
-                "📥 BAIXAR RESUMO", 
-                buffer_resumo.getvalue(), 
-                "Resumo_Multiplas.xlsx",
-                use_container_width=True
-            )
-            
-            # Planilhas individuais
+            st.dataframe(pd.DataFrame([{'Gaiola': k, 'Status': '✅' if v['encontrado'] else '❌', 'Paks': v['pacotes'], 'Stops': v['paradas']} for k, v in res.items()]), use_container_width=True, hide_index=True)
             g_enc = [k for k, v in res.items() if v['encontrado']]
-            
             if g_enc:
-                st.markdown("---")
-                st.markdown("##### 📥 Baixar Planilhas Individuais")
-                st.markdown('<div class="info-box">Selecione as gaiolas para gerar planilhas completas.</div>', unsafe_allow_html=True)
-                
                 sel = []
                 cols = st.columns(3)
-                
                 for i, gn in enumerate(g_enc):
                     with cols[i % 3]:
-                        paks = res[gn]['pacotes']
-                        stops = res[gn]['paradas']
-                        if st.checkbox(f"**{gn}** ({paks}p, {stops}s)", key=f"c_{gn}"): 
-                            sel.append(gn)
-                
-                if sel and st.button("📥 PREPARAR SELECIONADAS", key="b_p", use_container_width=True):
-                    with st.spinner(f"⚙️ Gerando {len(sel)} planilha(s)..."):
-                        st.session_state.planilhas_sessao = {}
-                        
-                        for s in sel:
-                            for aba in xl.sheet_names:
-                                df_r = pd.read_excel(xl, sheet_name=aba, header=None)
-                                idx = next((c for c in df_r.columns if df_r[c].astype(str).apply(limpar_string).eq(limpar_string(s)).any()), None)
-                                
-                                if idx is not None:
-                                    r = processar_gaiola_unica(df_r, s, idx)
-                                    if r:
-                                        b = io.BytesIO()
-                                        with pd.ExcelWriter(b, engine='openpyxl') as w: 
-                                            r['dataframe'].to_excel(w, index=False)
-                                        st.session_state.planilhas_sessao[s] = b.getvalue()
-                                        break
-                        
-                        st.success(f"✅ {len(st.session_state.planilhas_sessao)} planilha(s) gerada(s)!")
-                
+                        if st.checkbox(f"{gn}", key=f"c_{gn}"): sel.append(gn)
+                if sel and st.button("📥 PREPARAR", key="b_p"):
+                    st.session_state.planilhas_sessao = {}
+                    for s in sel:
+                        for aba in xl.sheet_names:
+                            df_r = pd.read_excel(xl, sheet_name=aba, header=None)
+                            idx = next((c for c in df_r.columns if df_r[c].astype(str).apply(limpar_string).eq(limpar_string(s)).any()), None)
+                            if idx is not None:
+                                r = processar_gaiola_unica(df_r, s, idx)
+                                if r:
+                                    b = io.BytesIO()
+                                    with pd.ExcelWriter(b) as w: r['dataframe'].to_excel(w, index=False)
+                                    st.session_state.planilhas_sessao[s] = b.getvalue(); break
                 if st.session_state.planilhas_sessao:
-                    st.markdown("##### 📄 Downloads:")
                     cols_d = st.columns(3)
-                    
                     for i, (n, d) in enumerate(st.session_state.planilhas_sessao.items()):
-                        with cols_d[i % 3]: 
-                            st.download_button(
-                                f"📄 {n}", 
-                                d, 
-                                f"Rota_{n}.xlsx", 
-                                key=f"d_{n}", 
-                                use_container_width=True
-                            )
+                        with cols_d[i % 3]: st.download_button(f"📄 {n}", d, f"Rota_{n}.xlsx", key=f"d_{n}", use_container_width=True)
 
     with t3:
-        st.markdown('<div class="info-box"><strong>🤖 Agente IA:</strong> Faça perguntas sobre o romaneio.</div>', unsafe_allow_html=True)
-        
-        p = st.text_input(
-            "Sua dúvida:", 
-            key="i_p",
-            placeholder="Ex: Quantas paradas tem a gaiola A-36?"
-        )
-        
-        if st.button("🧠 CONSULTAR AGENTE", use_container_width=True):
-            if not p:
-                st.warning("⚠️ Digite uma pergunta.")
-            else:
-                cli = inicializar_ia()
-                
-                if cli:
-                    with st.spinner("🔍 Analisando romaneio..."):
-                        resposta = agente_ia_treinado(cli, df_completo, p)
-                        st.markdown(f'<div class="success-box"><strong>✅ Resposta:</strong><br>{resposta}</div>', unsafe_allow_html=True)
+        p = st.text_input("Dúvida:", key="i_p")
+        if st.button("🧠 CONSULTAR", use_container_width=True):
+            modelo = configurar_ia()
+            if modelo:
+                with st.spinner("Handshake com o satélite..."):
+                    st.markdown(f'<div class="success-box">{agente_ia_treinado(modelo, df_completo, p)}</div>', unsafe_allow_html=True)
+            else: st.error("Erro na configuração da IA.")
 else:
-    st.info("📁 Aguardando upload do romaneio...")
+    st.info("📁 Suba o romaneio para iniciar.")
