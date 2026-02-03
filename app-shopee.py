@@ -389,39 +389,40 @@ def agente_ia_treinado(client: genai.Client, df: pd.DataFrame, pergunta: str) ->
             for col in df.columns:
                 df_target = df[df[col].astype(str).apply(limpar_string) == g_alvo]
                 if not df_target.empty:
-                    # CALCULAR MÉTRICAS REAIS (mesma lógica do processamento)
-                    # Identificar coluna de endereço
-                    col_end_idx = None
-                    for r in range(min(15, len(df))):
-                        linha = [str(x).upper() for x in df.iloc[r].values]
-                        for i, val in enumerate(linha):
-                            if any(t in val for t in ['ENDERE', 'LOGRA', 'RUA', 'ADDRESS']):
-                                col_end_idx = i
+                    try:
+                        # CALCULAR MÉTRICAS REAIS (mesma lógica do processamento)
+                        # Identificar coluna de endereço
+                        col_end_idx = None
+                        for r in range(min(15, len(df))):
+                            linha = [str(x).upper() for x in df.iloc[r].values]
+                            for i, val in enumerate(linha):
+                                if any(t in val for t in ['ENDERE', 'LOGRA', 'RUA', 'ADDRESS']):
+                                    col_end_idx = i
+                                    break
+                            if col_end_idx is not None:
                                 break
-                        if col_end_idx is not None:
-                            break
-                    
-                    if col_end_idx is None:
-                        col_end_idx = df_target.apply(lambda x: x.astype(str).map(len).max()).idxmax()
-                    
-                    # Aplicar a MESMA lógica de extração de base de endereço
-                    df_target_copy = df_target.copy()
-                    df_target_copy['CHAVE_STOP'] = df_target_copy[col_end_idx].apply(extrair_base_endereco)
-                    
-                    # Contar paradas únicas (RUA + NÚMERO)
-                    paradas_unicas = df_target_copy['CHAVE_STOP'].unique()
-                    num_paradas = len(paradas_unicas)
-                    
-                    # Contar comércios
-                    num_comercios = sum(1 for end in df_target_copy[col_end_idx] if identificar_comercio(str(end)) == "🏪 Comércio")
-                    
-                    metricas_calculadas = {
-                        'pacotes': len(df_target),
-                        'paradas': num_paradas,
-                        'comercios': num_comercios
-                    }
-                    
-                    contexto_dados = f"""DADOS REAIS DA GAIOLA {g_alvo}:
+                        
+                        if col_end_idx is None:
+                            col_end_idx = df_target.apply(lambda x: x.astype(str).map(len).max()).idxmax()
+                        
+                        # Aplicar a MESMA lógica de extração de base de endereço
+                        df_target_copy = df_target.copy()
+                        df_target_copy['CHAVE_STOP'] = df_target_copy[col_end_idx].apply(extrair_base_endereco)
+                        
+                        # Contar paradas únicas (RUA + NÚMERO)
+                        paradas_unicas = df_target_copy['CHAVE_STOP'].unique()
+                        num_paradas = len(paradas_unicas)
+                        
+                        # Contar comércios
+                        num_comercios = sum(1 for end in df_target_copy[col_end_idx] if identificar_comercio(str(end)) == "🏪 Comércio")
+                        
+                        metricas_calculadas = {
+                            'pacotes': len(df_target),
+                            'paradas': num_paradas,
+                            'comercios': num_comercios
+                        }
+                        
+                        contexto_dados = f"""DADOS REAIS DA GAIOLA {g_alvo}:
 
 📊 MÉTRICAS CALCULADAS (USE ESTES VALORES):
 ✅ Total de PACOTES: {metricas_calculadas['pacotes']}
@@ -438,7 +439,20 @@ def agente_ia_treinado(client: genai.Client, df: pd.DataFrame, pergunta: str) ->
 - Os valores acima já foram calculados usando essa lógica
 - SEMPRE use os valores calculados acima, NÃO conte manualmente
 """
-                    break
+                        break
+                    except Exception as calc_error:
+                        # Se falhar ao calcular métricas, usar modo simplificado
+                        contexto_dados = f"""DADOS REAIS DA GAIOLA {g_alvo}:
+                        
+⚠️ Não foi possível calcular métricas automaticamente.
+Erro: {str(calc_error)}
+
+🔍 AMOSTRA DOS DADOS (primeiras 50 linhas de {len(df_target)}):
+{df_target.head(50).to_string(max_rows=50)}
+
+💡 Use a aba "Gaiola Única" para obter métricas precisas.
+"""
+                        break
         
         if not contexto_dados:
             # LÓGICA ORIGINAL: Usar amostra geral se não encontrou gaiola específica
@@ -510,7 +524,13 @@ TERMOS ANULADORES: {', '.join(TERMOS_ANULADORES)}
                 continue
     
     except Exception as e:
+        import traceback
+        erro_completo = traceback.format_exc()
         erro_msg = str(e)
+        
+        # Log detalhado para debug
+        st.error(f"🔍 **Debug - Erro detalhado:**\n```\n{erro_completo}\n```")
+        
         if '404' in erro_msg or 'not found' in erro_msg.lower():
             return """❌ **Erro de configuração do modelo de IA**
             
@@ -522,7 +542,18 @@ Os modelos Gemini disponíveis podem ter mudado.
 3. Ou use as funcionalidades de processamento de gaiolas (abas 1 e 2)
 
 💡 O sistema funciona perfeitamente sem IA para filtrar e organizar rotas."""
-        return f"❌ Erro ao processar pergunta: {erro_msg}\n\n💡 Tente reformular sua pergunta ou aguarde alguns segundos."
+        
+        return f"""❌ **Erro ao processar pergunta**
+
+**Tipo do erro:** {type(e).__name__}
+**Mensagem:** {erro_msg}
+
+💡 **Possíveis causas:**
+- Prompt muito longo (tente uma pergunta mais específica)
+- Timeout do modelo (aguarde e tente novamente)
+- Limite de tokens excedido
+
+**Dica:** Use as abas "Gaiola Única" ou "Múltiplas Gaiolas" para resultados garantidos."""
 
 # --- TUTORIAL ---
 st.markdown("""
