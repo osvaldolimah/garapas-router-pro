@@ -422,23 +422,13 @@ def agente_ia_treinado(client: genai.Client, df: pd.DataFrame, pergunta: str) ->
                             'comercios': num_comercios
                         }
                         
-                        contexto_dados = f"""DADOS REAIS DA GAIOLA {g_alvo}:
+                        contexto_dados = f"""DADOS DA GAIOLA {g_alvo}:
 
-📊 MÉTRICAS CALCULADAS (USE ESTES VALORES):
-✅ Total de PACOTES: {metricas_calculadas['pacotes']}
-✅ Total de PARADAS: {metricas_calculadas['paradas']} (endereços únicos: rua + número agrupados)
-✅ Total de COMÉRCIOS: {metricas_calculadas['comercios']}
+✅ PACOTES: {metricas_calculadas['pacotes']}
+✅ PARADAS: {metricas_calculadas['paradas']} (endereços únicos agrupados por rua+número)
+✅ COMÉRCIOS: {metricas_calculadas['comercios']}
 
-🔍 AMOSTRA DOS ENDEREÇOS (primeiras 50 linhas de {len(df_target)}):
-{df_target.head(50).to_string(max_rows=50)}
-
-⚠️ IMPORTANTE SOBRE PARADAS:
-- PARADA = agrupamento de endereços com mesma RUA + NÚMERO
-- Exemplo: "Rua A, 123" e "Rua A, 123, Apto 2" = 1 PARADA (mesmo endereço base)
-- Exemplo: "Rua A, 123" e "Rua A, 125" = 2 PARADAS (números diferentes)
-- Os valores acima já foram calculados usando essa lógica
-- SEMPRE use os valores calculados acima, NÃO conte manualmente
-"""
+Nota: PARADA = vários pacotes no mesmo endereço base (rua + número)."""
                         break
                     except Exception as calc_error:
                         # Se falhar ao calcular métricas, usar modo simplificado
@@ -464,44 +454,20 @@ ESTATÍSTICAS GERAIS:
 - Colunas disponíveis: {list(df.columns)}
 """
         
-        # PROMPT ATUALIZADO com instruções claras sobre paradas
-        prompt = f"""Você é o **Waze Humano** - assistente especializado em logística e rotas de entrega.
+        # PROMPT OTIMIZADO - versão ultra compacta
+        prompt = f"""Você é assistente de logística especializado em romaneios de entrega.
 
-🎯 SUA FUNÇÃO:
-Responder perguntas sobre o romaneio usando os dados fornecidos.
-
-📊 DADOS DO ROMANEIO:
+📊 DADOS:
 {contexto_dados}
 
-📋 REGRAS DE IDENTIFICAÇÃO DE COMÉRCIOS:
-TERMOS COMERCIAIS: {', '.join(TERMOS_COMERCIAIS[:15])}... (total: {len(TERMOS_COMERCIAIS)} termos)
-TERMOS ANULADORES: {', '.join(TERMOS_ANULADORES)}
-- Se o endereço contém termo comercial SEM anulador antes, é comércio
-- Exemplo: "LOJA ABC" = Comércio | "PROXIMO A LOJA ABC" = Residencial
+IMPORTANTE:
+- PARADA = endereços únicos (rua+número). Vários pacotes podem ir para a mesma parada.
+- PACOTE = cada item individual para entrega
+- Use os valores fornecidos acima (já calculados corretamente)
 
-🧮 INSTRUÇÕES CRÍTICAS PARA RESPOSTAS:
+Pergunta: {pergunta}
 
-1. **PARA PERGUNTAS SOBRE PARADAS:**
-   - Se as métricas calculadas foram fornecidas acima, USE EXATAMENTE aquele valor
-   - NÃO conte linhas do DataFrame, isso dá o número de PACOTES
-   - PARADA ≠ PACOTE (vários pacotes podem ir para a mesma parada)
-   
-2. **PARA PERGUNTAS SOBRE PACOTES:**
-   - Pacote = cada linha do DataFrame
-   - Use o total fornecido ou conte as linhas
-   
-3. **PARA PERGUNTAS SOBRE COMÉRCIOS:**
-   - Use o valor calculado se fornecido
-   - Ou identifique endereços com termos comerciais
-   
-4. **Seja direto e preciso:**
-   - Cite os números exatos
-   - Explique brevemente se necessário
-
-❓ PERGUNTA DO USUÁRIO:
-{pergunta}
-
-💬 SUA RESPOSTA (use os valores calculados acima):"""
+Resposta objetiva:"""
 
         # Chamar a IA com fallback de modelos (nomes atualizados 2025)
         modelos = [
