@@ -435,16 +435,40 @@ TERMOS ANULADORES: {', '.join(TERMOS_ANULADORES)}
 
 💬 SUA RESPOSTA (seja direto e preciso):"""
 
-        # Chamar a IA
-        response = client.models.generate_content(
-            model='gemini-1.5-flash',  # Modelo estável e rápido
-            contents=prompt
-        )
+        # Chamar a IA com fallback de modelos (nomes atualizados 2025)
+        modelos = [
+            'gemini-2.5-flash',      # Modelo mais recente e rápido
+            'gemini-2.0-flash',      # Modelo 2.0 estável
+            'gemini-1.5-flash',      # Fallback 1.5
+            'gemini-1.5-pro'         # Modelo mais poderoso
+        ]
         
-        return response.text
+        for modelo in modelos:
+            try:
+                response = client.models.generate_content(
+                    model=modelo,
+                    contents=prompt
+                )
+                return response.text
+            except Exception as model_error:
+                if modelo == modelos[-1]:
+                    raise
+                continue
     
     except Exception as e:
-        return f"❌ Erro ao processar pergunta: {str(e)}\n\n💡 Tente reformular sua pergunta ou aguarde alguns segundos."
+        erro_msg = str(e)
+        if '404' in erro_msg or 'not found' in erro_msg.lower():
+            return """❌ **Erro de configuração do modelo de IA**
+            
+Os modelos Gemini disponíveis podem ter mudado. 
+
+**Solução alternativa:**
+1. Verifique sua API key do Gemini em `.streamlit/secrets.toml`
+2. Certifique-se de que tem acesso aos modelos Gemini
+3. Ou use as funcionalidades de processamento de gaiolas (abas 1 e 2)
+
+💡 O sistema funciona perfeitamente sem IA para filtrar e organizar rotas."""
+        return f"❌ Erro ao processar pergunta: {erro_msg}\n\n💡 Tente reformular sua pergunta ou aguarde alguns segundos."
 
 # --- TUTORIAL ---
 st.markdown("""
