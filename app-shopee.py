@@ -131,7 +131,7 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         if not encontrado: resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
     return resultados
 
-# --- IA: MOTOR DE ANALISE (v3.17 - RADAR DE CABEÇALHO E BAIRROS) ---
+# --- IA: MOTOR DE ANALISE (v3.18 - AGERUPAMENTO INTELIGENTE DE BAIRROS) ---
 def inicializar_ia():
     try: return genai.Client(api_key=st.secrets["GEMINI_API_KEY"], http_options=HttpOptions(api_version='v1'))
     except: return None
@@ -148,42 +148,36 @@ def agente_ia_treinado(client, df, pergunta):
                 break
         
         if not df_target.empty:
-            # NOVO RADAR v3.17: Procura primeiro nos cabeçalhos reais (Headers)
             col_end_idx, col_bairro_idx = None, None
             for i, col_name in enumerate(df.columns):
                 c_name = str(col_name).upper()
                 if any(t in c_name for t in ['ADDRESS', 'ENDERE', 'LOGRA', 'RUA']): col_end_idx = i
                 if any(t in c_name for t in ['NEIGHBORHOOD', 'BAIRRO', 'SETOR']): col_bairro_idx = i
             
-            # Fallback (Radar de Dados v3.16) se os cabeçalhos não ajudarem
-            if col_end_idx is None or col_bairro_idx is None:
-                for r in range(min(5, len(df))):
-                    linha = [str(x).upper() for x in df.iloc[r].values]
-                    for i, val in enumerate(linha):
-                        if col_end_idx is None and any(t in val for t in ['ENDERE', 'LOGRA', 'RUA']): col_end_idx = i
-                        if col_bairro_idx is None and any(t in val for t in ['BAIRRO', 'SETOR']): col_bairro_idx = i
-            
-            # Cálculo de paradas e bairros
+            # Cálculo Blindado de Paradas (Matemática Pura)
             if col_end_idx is None: col_end_idx = 0
             df_target['BASE_STOP'] = df_target.iloc[:, col_end_idx].apply(extrair_base_endereco)
             paradas = df_target['BASE_STOP'].nunique()
             
+            # Limpeza de Bairros (Python Fuzzy v3.18)
             lista_bairros = []
             if col_bairro_idx is not None:
-                lista_bairros = df_target.iloc[:, col_bairro_idx].dropna().unique().tolist()
+                # Padroniza e Deduplica nomes brutos para enviar menos ruído à IA
+                lista_bairros = df_target.iloc[:, col_bairro_idx].dropna().astype(str).apply(remover_acentos).unique().tolist()
             
             contexto_matematico = f"""
             DADOS REAIS DA GAIOLA {g_alvo}:
             - Pacotes: {len(df_target)}
             - Paradas: {paradas}
-            - Bairros atendidos: {', '.join(map(str, lista_bairros)) if lista_bairros else 'Informação pendente.'}
+            - Lista Bruta de Bairros (limpar typos): {', '.join(lista_bairros) if lista_bairros else 'N/A'}
             """
 
-    prompt_base = f"""Você é o Waze Humano. Use APENAS os dados abaixo.
-    INSTRUÇÃO CRÍTICA:
-    1. Responda 'Quais bairros tem na gaiola' usando a lista 'Bairros atendidos'.
-    2. Não diga que a informação não está disponível se ela constar no contexto.
-    3. Trate Gaiola e Planilha como a mesma coisa.
+    prompt_base = f"""Você é o Waze Humano. 
+    INSTRUÇÕES DE INTELIGÊNCIA:
+    1. Se a lista de bairros contiver typos (ex: MOMTESE vs MONTESE), você deve fundi-los e informar apenas o bairro correto.
+    2. Nunca liste o mesmo bairro várias vezes com grafias diferentes.
+    3. Trate 'Gaiola', 'Planilha' e 'Rota' como sinônimos.
+    4. Mantenha a contagem exata de {paradas if match_gaiola and not df_target.empty else 'N/A'} paradas informada pelo sistema.
     
     {contexto_matematico if contexto_matematico else 'Resumo: ' + df.head(15).to_string()}
     """
@@ -266,12 +260,12 @@ if arquivo_upload:
                         with cols_dl[idx % 3]:
                             st.download_button(label=f"📄 Rota {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
 
-    with tab3: # IA CALIBRADA v3.17
+    with tab3: # IA CALIBRADA v3.18
         p_ia = st.text_input("Dúvida logística:", key="p_ia_tab3")
         if st.button("🧠 CONSULTAR AGENTE IA", use_container_width=True, key="btn_ia_tab3"):
             cli = inicializar_ia()
             if cli:
-                with st.spinner("Analisando cabeçalhos e rotas..."):
+                with st.spinner("Limpando ruídos e mapeando bairros..."):
                     st.markdown(f'<div class="success-box">{agente_ia_treinado(cli, df_completo, p_ia)}</div>', unsafe_allow_html=True)
             else: st.error("API Key ausente.")
 else:
