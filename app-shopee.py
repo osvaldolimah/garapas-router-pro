@@ -32,7 +32,7 @@ TERMOS_ANULADORES = [
     'DEPOIS', 'PERTO', 'VIZINHA'
 ]
 
-# --- RESTAURAÇÃO DO SISTEMA DE DESIGN ORIGINAL (MARCO ZERO) ---
+# --- SISTEMA DE DESIGN ORIGINAL (MARCO ZERO) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap');
@@ -97,7 +97,6 @@ st.markdown("""
         flex-shrink: 0;
     }
 
-    /* RESTAURAÇÃO DAS ABAS ARREDONDADAS DO MARCO ZERO */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
         background-color: white;
@@ -121,6 +120,7 @@ st.markdown("""
         border-color: var(--shopee-orange);
     }
 
+    /* Tradução visual do botão de arquivo via CSS */
     [data-testid="stFileUploader"] section button div[data-testid="stMarkdownContainer"] p {
         font-size: 0 !important;
     }
@@ -162,17 +162,6 @@ st.markdown("""
         font-size: 0.9rem;
         color: #1E40AF;
     }
-
-    .codigo-badge {
-        display: inline-block;
-        background: var(--shopee-orange);
-        color: white;
-        padding: 4px 10px;
-        border-radius: 6px;
-        margin: 3px;
-        font-weight: 600;
-        font-size: 0.9rem;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -185,7 +174,7 @@ if 'df_visualizacao' not in st.session_state: st.session_state.df_visualizacao =
 if 'modo_atual' not in st.session_state: st.session_state.modo_atual = 'unica'
 if 'resultado_multiplas' not in st.session_state: st.session_state.resultado_multiplas = None
 
-# --- FUNÇÕES AUXILIARES (LOGICA MARCO ZERO PRESERVADA) ---
+# --- FUNÇÕES AUXILIARES (LOGICA MARCO ZERO) ---
 @st.cache_data
 def remover_acentos(texto: str) -> str:
     return "".join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn').upper()
@@ -245,7 +234,7 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         if not encontrado: resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
     return resultados
 
-# --- IA: AGENTE COM LÓGICA DE BUSCA FILTRADA PRESERVADA ---
+# --- IA: LOGICA v3.7 PRESERVADA ---
 def inicializar_ia():
     api_key = st.secrets.get("GEMINI_API_KEY")
     return genai.Client(api_key=api_key, http_options=HttpOptions(api_version='v1')) if api_key else None
@@ -260,29 +249,33 @@ def agente_ia_treinado(client, df, pergunta):
             if not df_target.empty:
                 contexto_dados = f"DADOS REAIS DA GAIOLA {g_alvo}:\n{df_target.to_string()}"
                 break
-    if not contexto_dados:
-        contexto_dados = f"RESUMO DO ARQUIVO:\n{df.describe().to_string()}\n\nAMOSTRA:\n{df.head(100).to_string()}"
-
-    prompt = f"""Você é o Agente Waze Humano em Fortaleza. REGRAS: Termos comerciais: {TERMOS_COMERCIAIS}.
-    Analise o romaneio fornecido abaixo:
-    {contexto_dados}"""
+    if not contexto_dados: contexto_dados = f"AMOSTRA:\n{df.head(100).to_string()}"
+    prompt = f"Você é o Waze Humano. Regras: {TERMOS_COMERCIAIS}. Romaneio: {contexto_dados}"
     try:
         response = client.models.generate_content(model='gemini-2.5-flash', contents=f"{prompt}\nPergunta: {pergunta}")
         return response.text
     except Exception as e: return f"Erro na IA: {e}"
 
+# --- TUTORIAL (PORTUGUÊS) ---
+st.markdown("""
+<div class="tutorial-section">
+    <div class="step-item"><div class="step-badge">1</div><span>Selecione o arquivo <b>.xlsx</b> do romaneio.</span></div>
+    <div class="step-item"><div class="step-badge">2</div><span>Escolha: Digite <b>uma gaiola</b> OU digite <b>várias gaiolas</b>.</span></div>
+    <div class="step-item"><div class="step-badge">3</div><span>Baixe a planilha ou visualize o resumo com o Agente IA.</span></div>
+</div>
+""", unsafe_allow_html=True)
+
 # --- FLUXO DE INTERFACE ---
-st.markdown("""<div class="tutorial-section"><div class="step-item"><div class="step-badge">1</div><span>Upload <b>.xlsx</b>.</span></div></div>""", unsafe_allow_html=True)
 arquivo_upload = st.file_uploader("Upload", type=["xlsx"], label_visibility="collapsed", key="romaneio_upload")
 
 if arquivo_upload:
+    xl = pd.ExcelFile(arquivo_upload)
     tab1, tab2, tab3 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "🤖 Agente IA"])
 
     with tab1: # CONTEÚDO ORIGINAL MARCO ZERO
         gaiola_unica = st.text_input("Gaiola", placeholder="Ex: C-42", key="gui").strip().upper()
         if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u", use_container_width=True):
             st.session_state.modo_atual = 'unica'
-            xl = pd.ExcelFile(arquivo_upload)
             target = limpar_string(gaiola_unica); enc = False
             for aba in xl.sheet_names:
                 df_raw = pd.read_excel(xl, sheet_name=aba, header=None, engine='openpyxl')
@@ -304,14 +297,13 @@ if arquivo_upload:
             lista = [c.strip().upper() for c in cod_multi.split('\n') if c.strip()]
             if lista: st.session_state.resultado_multiplas = processar_multiplas_gaiolas(arquivo_upload, lista)
 
-    with tab3: # ABA AGENTE IA (LÓGICA PRESERVADA)
-        st.markdown('<div class="info-box"><strong>IA Logística:</strong> Enxergando o romaneio completo.</div>', unsafe_allow_html=True)
-        p_ia = st.text_input("Sua dúvida logística:", key="p_ia")
+    with tab3: # ABA AGENTE IA (LOGICA PRESERVADA)
+        p_ia = st.text_input("Sua dúvida sobre este romaneio:", key="p_ia")
         if st.button("🧠 CONSULTAR AGENTE", use_container_width=True):
             cli = inicializar_ia()
             if cli:
                 df_ia = pd.read_excel(arquivo_upload)
-                with st.spinner("Analisando..."):
+                with st.spinner("O Agente está analisando..."):
                     st.info(agente_ia_treinado(cli, df_ia, p_ia))
             else: st.error("GEMINI_API_KEY não configurada.")
 
@@ -323,10 +315,10 @@ if arquivo_upload:
         st.dataframe(st.session_state.df_visualizacao, use_container_width=True, hide_index=True)
         st.download_button("📥 BAIXAR PLANILHA COMPLETA", st.session_state.dados_prontos, st.session_state.nome_arquivo, use_container_width=True)
 
-    # RESULTADOS MÚLTIPLAS COM CHECKBOXES (MARCO ZERO)
+    # RESULTADOS MÚLTIPLAS (MARCO ZERO)
     if st.session_state.modo_atual == 'multiplas' and st.session_state.resultado_multiplas:
         res = st.session_state.resultado_multiplas
-        df_res = pd.DataFrame([{'Gaiola': k, 'Status': '✅' if v['encontrado'] else '❌', 'Pacotes': v['pacotes'], 'Paradas': v['paradas'], 'Comércios': v['comercios']} for k, v in res.items()])
+        df_res = pd.DataFrame([{'Gaiola': k, 'Status': '✅' if v['encontrado'] else '❌', 'Pacotes': v['pacotes'], 'Paradas': v['paradas']} for k, v in res.items()])
         st.dataframe(df_res, use_container_width=True, hide_index=True)
         g_enc = [k for k, v in res.items() if v['encontrado']]
         if g_enc:
@@ -351,4 +343,4 @@ if arquivo_upload:
                                 st.download_button(label=f"📄 Rota {s}", data=buf_ind.getvalue(), file_name=f"Rota_{s}.xlsx", key=f"dl_{s}", use_container_width=True)
                                 break
 else:
-    st.info("Aguardando upload do romaneio.")
+    st.info("Aguardando romaneio para iniciar a estratégia de rotas.")
