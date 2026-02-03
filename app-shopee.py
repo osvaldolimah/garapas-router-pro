@@ -5,7 +5,6 @@ import unicodedata
 import re
 from typing import List, Dict, Optional
 from google import genai
-from google.genai.types import HttpOptions
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
@@ -349,10 +348,7 @@ def inicializar_ia() -> Optional[genai.Client]:
     """
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
-        return genai.Client(
-            api_key=api_key, 
-            http_options=HttpOptions(api_version='v1')
-        )
+        return genai.Client(api_key=api_key)
     except KeyError:
         st.error("""
         ❌ **API Key não configurada**
