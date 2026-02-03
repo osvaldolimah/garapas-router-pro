@@ -381,6 +381,7 @@ def agente_ia_treinado(client: genai.Client, df: pd.DataFrame, pergunta: str) ->
         # LÓGICA ORIGINAL: Detectar gaiola na pergunta
         match_gaiola = re.search(r'([A-Z][- ]?\d+)', pergunta.upper())
         contexto_dados = ""
+        metricas_calculadas = None
         
         if match_gaiola:
             # LÓGICA ORIGINAL: Buscar dados específicos da gaiola
@@ -388,18 +389,59 @@ def agente_ia_treinado(client: genai.Client, df: pd.DataFrame, pergunta: str) ->
             for col in df.columns:
                 df_target = df[df[col].astype(str).apply(limpar_string) == g_alvo]
                 if not df_target.empty:
-                    # MELHORIA: Limitar a 100 linhas para performance (era todo o DataFrame)
+                    # CALCULAR MÉTRICAS REAIS (mesma lógica do processamento)
+                    # Identificar coluna de endereço
+                    col_end_idx = None
+                    for r in range(min(15, len(df))):
+                        linha = [str(x).upper() for x in df.iloc[r].values]
+                        for i, val in enumerate(linha):
+                            if any(t in val for t in ['ENDERE', 'LOGRA', 'RUA', 'ADDRESS']):
+                                col_end_idx = i
+                                break
+                        if col_end_idx is not None:
+                            break
+                    
+                    if col_end_idx is None:
+                        col_end_idx = df_target.apply(lambda x: x.astype(str).map(len).max()).idxmax()
+                    
+                    # Aplicar a MESMA lógica de extração de base de endereço
+                    df_target_copy = df_target.copy()
+                    df_target_copy['CHAVE_STOP'] = df_target_copy[col_end_idx].apply(extrair_base_endereco)
+                    
+                    # Contar paradas únicas (RUA + NÚMERO)
+                    paradas_unicas = df_target_copy['CHAVE_STOP'].unique()
+                    num_paradas = len(paradas_unicas)
+                    
+                    # Contar comércios
+                    num_comercios = sum(1 for end in df_target_copy[col_end_idx] if identificar_comercio(str(end)) == "🏪 Comércio")
+                    
+                    metricas_calculadas = {
+                        'pacotes': len(df_target),
+                        'paradas': num_paradas,
+                        'comercios': num_comercios
+                    }
+                    
                     contexto_dados = f"""DADOS REAIS DA GAIOLA {g_alvo}:
-{df_target.head(100).to_string(max_rows=100)}
 
-IMPORTANTE: Se a gaiola tiver mais de 100 linhas, você está vendo apenas uma amostra.
-Para contagens, use os totais: {len(df_target)} pacotes no total para esta gaiola.
+📊 MÉTRICAS CALCULADAS (USE ESTES VALORES):
+✅ Total de PACOTES: {metricas_calculadas['pacotes']}
+✅ Total de PARADAS: {metricas_calculadas['paradas']} (endereços únicos: rua + número agrupados)
+✅ Total de COMÉRCIOS: {metricas_calculadas['comercios']}
+
+🔍 AMOSTRA DOS ENDEREÇOS (primeiras 50 linhas de {len(df_target)}):
+{df_target.head(50).to_string(max_rows=50)}
+
+⚠️ IMPORTANTE SOBRE PARADAS:
+- PARADA = agrupamento de endereços com mesma RUA + NÚMERO
+- Exemplo: "Rua A, 123" e "Rua A, 123, Apto 2" = 1 PARADA (mesmo endereço base)
+- Exemplo: "Rua A, 123" e "Rua A, 125" = 2 PARADAS (números diferentes)
+- Os valores acima já foram calculados usando essa lógica
+- SEMPRE use os valores calculados acima, NÃO conte manualmente
 """
                     break
         
         if not contexto_dados:
             # LÓGICA ORIGINAL: Usar amostra geral se não encontrou gaiola específica
-            # MELHORIA: Reduzir de 100 para 30 linhas (evita timeout em planilhas gigantes)
             contexto_dados = f"""AMOSTRA DO ROMANEIO (primeiras 30 linhas de {len(df)} totais):
 {df.head(30).to_string(max_rows=30)}
 
@@ -408,32 +450,44 @@ ESTATÍSTICAS GERAIS:
 - Colunas disponíveis: {list(df.columns)}
 """
         
-        # MELHORIA: Prompt estruturado (preservando função original)
+        # PROMPT ATUALIZADO com instruções claras sobre paradas
         prompt = f"""Você é o **Waze Humano** - assistente especializado em logística e rotas de entrega.
 
-🎯 SUA FUNÇÃO (PRESERVADA):
-Você tem a mesma capacidade matemática e analítica de sempre. Pode contar, somar, calcular e analisar rotas.
+🎯 SUA FUNÇÃO:
+Responder perguntas sobre o romaneio usando os dados fornecidos.
 
 📊 DADOS DO ROMANEIO:
 {contexto_dados}
 
-📋 REGRAS DE IDENTIFICAÇÃO:
+📋 REGRAS DE IDENTIFICAÇÃO DE COMÉRCIOS:
 TERMOS COMERCIAIS: {', '.join(TERMOS_COMERCIAIS[:15])}... (total: {len(TERMOS_COMERCIAIS)} termos)
 TERMOS ANULADORES: {', '.join(TERMOS_ANULADORES)}
+- Se o endereço contém termo comercial SEM anulador antes, é comércio
+- Exemplo: "LOJA ABC" = Comércio | "PROXIMO A LOJA ABC" = Residencial
 
-🧮 INSTRUÇÕES PARA CÁLCULOS:
-1. Use os dados reais sempre que disponíveis
-2. Para contagens (pacotes, paradas, comércios):
-   - Conte as linhas visíveis OU
-   - Use os totais fornecidos se a amostra for limitada
-3. Para análises por gaiola: procure o código exato (ex: A-36, C-42)
-4. Seja preciso e objetivo
-5. Se não tiver certeza, diga "Com base na amostra visível..."
+🧮 INSTRUÇÕES CRÍTICAS PARA RESPOSTAS:
+
+1. **PARA PERGUNTAS SOBRE PARADAS:**
+   - Se as métricas calculadas foram fornecidas acima, USE EXATAMENTE aquele valor
+   - NÃO conte linhas do DataFrame, isso dá o número de PACOTES
+   - PARADA ≠ PACOTE (vários pacotes podem ir para a mesma parada)
+   
+2. **PARA PERGUNTAS SOBRE PACOTES:**
+   - Pacote = cada linha do DataFrame
+   - Use o total fornecido ou conte as linhas
+   
+3. **PARA PERGUNTAS SOBRE COMÉRCIOS:**
+   - Use o valor calculado se fornecido
+   - Ou identifique endereços com termos comerciais
+   
+4. **Seja direto e preciso:**
+   - Cite os números exatos
+   - Explique brevemente se necessário
 
 ❓ PERGUNTA DO USUÁRIO:
 {pergunta}
 
-💬 SUA RESPOSTA (seja direto e preciso):"""
+💬 SUA RESPOSTA (use os valores calculados acima):"""
 
         # Chamar a IA com fallback de modelos (nomes atualizados 2025)
         modelos = [
