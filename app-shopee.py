@@ -134,7 +134,8 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
 # --- IA: MOTOR DE ANALISE (BLINDAGEM v3.27) ---
 def inicializar_ia():
     try:
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        # AQUI ESTÁ A LINHA DA API KEY QUE VOCÊ PROCURA:
+        genai.configure(api_key=st.secrets["AIzaSyDGK_W0Fgj7RsMTIcB9ABGos-PyuT_Dd7w"])
         return genai.GenerativeModel('gemini-1.5-flash')
     except:
         return None
@@ -186,7 +187,7 @@ if arquivo_upload:
 
     tab1, tab2, tab3 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "🤖 Agente IA"])
 
-    with tab1: # TAB 1 ORIGINAL
+    with tab1:
         st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Gerar rota detalhada.</div>', unsafe_allow_html=True)
         g_unica = st.text_input("Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
         if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1", use_container_width=True):
@@ -209,7 +210,7 @@ if arquivo_upload:
             st.dataframe(st.session_state.df_visual_tab1, use_container_width=True, hide_index=True)
             st.download_button("📥 BAIXAR PLANILHA", st.session_state.dados_prontos, f"Rota_{g_unica}.xlsx", use_container_width=True)
 
-    with tab2: # TAB 2 ORIGINAL
+    with tab2:
         cod_m = st.text_area("Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_tab2")
         if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m_tab2", use_container_width=True):
             st.session_state.modo_atual = 'multiplas'
@@ -251,7 +252,7 @@ if arquivo_upload:
                         with cols_dl[idx % 3]:
                             st.download_button(label=f"📄 Rota {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
 
-    with tab3: # TAB 3 ORIGINAL
+    with tab3:
         p_ia = st.text_input("Dúvida logística:", key="p_ia_tab3")
         if st.button("🧠 CONSULTAR AGENTE IA", use_container_width=True, key="btn_ia_tab3"):
             modelo = inicializar_ia()
