@@ -575,3 +575,105 @@ if st.session_state.resultado_multiplas and st.session_state.modo_atual == 'mult
     nao_encontradas = [codigo for codigo, dados in resultados.items() if not dados['encontrado']]
     if nao_encontradas:
         st.warning(f"⚠️ Gaiolas não encontradas no romaneio: {', '.join(nao_encontradas)}")
+    
+    # --- SEÇÃO DE DOWNLOAD INDIVIDUAL ---
+    st.markdown("---")
+    st.markdown("### 📥 Baixar Planilhas Individuais para Circuit")
+    
+    st.markdown("""
+    <div class="info-box">
+        <strong>💡 Selecione as gaiolas:</strong> Marque as caixas abaixo para gerar planilhas 
+        completas (com endereços) no formato do Circuit.
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Filtrar apenas gaiolas encontradas
+    gaiolas_encontradas_lista = [codigo for codigo, dados in resultados.items() if dados['encontrado']]
+    
+    if not gaiolas_encontradas_lista:
+        st.info("ℹ️ Nenhuma gaiola encontrada para gerar planilhas individuais.")
+    else:
+        # Criar checkboxes para cada gaiola encontrada
+        st.markdown("##### ✅ Selecione as gaiolas:")
+        
+        # Organizar em colunas para melhor visual
+        num_colunas = 3
+        colunas = st.columns(num_colunas)
+        
+        gaiolas_selecionadas = []
+        for idx, codigo in enumerate(gaiolas_encontradas_lista):
+            col_idx = idx % num_colunas
+            with colunas[col_idx]:
+                pacotes = resultados[codigo]['pacotes']
+                paradas = resultados[codigo]['paradas']
+                
+                if st.checkbox(
+                    f"**{codigo}** ({pacotes} pacotes, {paradas} paradas)",
+                    key=f"checkbox_{codigo}"
+                ):
+                    gaiolas_selecionadas.append(codigo)
+        
+        # Botão para gerar planilhas das selecionadas
+        if gaiolas_selecionadas:
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            if st.button(
+                f"📥 GERAR PLANILHAS DAS {len(gaiolas_selecionadas)} GAIOLA(S) SELECIONADA(S)",
+                key="btn_gerar_individuais",
+                use_container_width=True
+            ):
+                with st.spinner(f'⚙️ Gerando planilhas de {len(gaiolas_selecionadas)} gaiola(s)...'):
+                    try:
+                        xl = pd.ExcelFile(arquivo_upload)
+                        planilhas_geradas = {}
+                        
+                        for gaiola in gaiolas_selecionadas:
+                            target_limpo = limpar_string(gaiola)
+                            
+                            # Buscar e processar a gaiola
+                            for aba in xl.sheet_names:
+                                df_raw = pd.read_excel(xl, sheet_name=aba, header=None, engine='openpyxl')
+                                
+                                col_gaiola_idx = next(
+                                    (col for col in df_raw.columns 
+                                     if df_raw[col].astype(str).apply(limpar_string).eq(target_limpo).any()), 
+                                    None
+                                )
+                                
+                                if col_gaiola_idx is not None:
+                                    resultado = processar_gaiola_unica(df_raw, gaiola, col_gaiola_idx)
+                                    
+                                    if resultado:
+                                        # Gerar Excel individual
+                                        buffer_individual = io.BytesIO()
+                                        with pd.ExcelWriter(buffer_individual, engine='openpyxl') as writer:
+                                            resultado['dataframe'].to_excel(writer, index=False)
+                                        
+                                        planilhas_geradas[gaiola] = buffer_individual.getvalue()
+                                        break
+                        
+                        # Mostrar planilhas geradas
+                        if planilhas_geradas:
+                            st.success(f"✅ {len(planilhas_geradas)} planilha(s) gerada(s) com sucesso!")
+                            
+                            st.markdown("##### 📥 Download das Planilhas:")
+                            
+                            # Criar colunas para os botões de download
+                            cols_download = st.columns(min(3, len(planilhas_geradas)))
+                            
+                            for idx, (gaiola, dados_excel) in enumerate(planilhas_geradas.items()):
+                                col_idx = idx % 3
+                                with cols_download[col_idx]:
+                                    st.download_button(
+                                        label=f"📄 {gaiola}",
+                                        data=dados_excel,
+                                        file_name=f"Rota_{gaiola}.xlsx",
+                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                        key=f"download_{gaiola}",
+                                        use_container_width=True
+                                    )
+                        else:
+                            st.error("❌ Erro ao gerar planilhas. Tente novamente.")
+                    
+                    except Exception as e:
+                        st.error(f"⚠️ Erro ao gerar planilhas: {e}")
