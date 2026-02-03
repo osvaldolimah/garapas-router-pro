@@ -70,7 +70,7 @@ if 'resultado_multiplas' not in st.session_state: st.session_state.resultado_mul
 if 'df_cache' not in st.session_state: st.session_state.df_cache = None
 if 'planilhas_sessao' not in st.session_state: st.session_state.planilhas_sessao = {}
 
-# --- FUNÇÕES AUXILIARES (LOGICA MARCO ZERO) ---
+# --- FUNÇÕES AUXILIARES ---
 @st.cache_data
 def remover_acentos(texto: str) -> str:
     return "".join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn').upper()
@@ -131,61 +131,64 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         if not encontrado: resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
     return resultados
 
-# --- IA: MOTOR DE ANALISE (v3.18 - AGERUPAMENTO INTELIGENTE DE BAIRROS) ---
+# --- IA: MOTOR DE ANALISE (v3.19 - COMPARAÇÃO E ESTABILIDADE 1.5-FLASH) ---
 def inicializar_ia():
     try: return genai.Client(api_key=st.secrets["GEMINI_API_KEY"], http_options=HttpOptions(api_version='v1'))
     except: return None
 
 def agente_ia_treinado(client, df, pergunta):
+    # 1. Identificar colunas essenciais uma única vez
+    col_gaiola_idx, col_end_idx, col_bairro_idx = None, None, None
+    for i, col_name in enumerate(df.columns):
+        c_name = str(col_name).upper()
+        if col_gaiola_idx is None and any(t in c_name for t in ['GAIOLA', 'LETRA', 'CANISTER']): col_gaiola_idx = i
+        if col_end_idx is None and any(t in c_name for t in ['ADDRESS', 'ENDERE', 'LOGRA', 'RUA']): col_end_idx = i
+        if col_bairro_idx is None and any(t in c_name for t in ['NEIGHBORHOOD', 'BAIRRO', 'SETOR']): col_bairro_idx = i
+    
+    # Fallback se não achar nos headers
+    if col_gaiola_idx is None: col_gaiola_idx = 0
+    if col_end_idx is None: col_end_idx = 0
+
+    # 2. GERAR TABELA DE COMPARAÇÃO (Resumo Geográfico Completo)
+    # Agrupa por gaiola e calcula pacotes e paradas reais usando a lógica de extração
+    temp_df = df.copy()
+    temp_df['BASE_STOP'] = temp_df.iloc[:, col_end_idx].apply(extrair_base_endereco)
+    
+    resumo_gaiolas = temp_df.groupby(temp_df.columns[col_gaiola_idx]).agg(
+        Pacotes=('BASE_STOP', 'count'),
+        Paradas=('BASE_STOP', 'nunique')
+    ).reset_index()
+    
+    # Criar string de contexto para a IA
+    contexto_comparativo = "TABELA GERAL DE GAIOLAS:\n"
+    for _, row in resumo_gaiolas.iterrows():
+        contexto_comparativo += f"- Gaiola {row[0]}: {row['Pacotes']} pacotes, {row['Paradas']} paradas.\n"
+
+    # 3. Contexto específico para a gaiola citada (se houver)
     match_gaiola = re.search(r'([A-Z][- ]?\d+)', pergunta.upper())
-    contexto_matematico = ""
+    contexto_especifico = ""
     if match_gaiola:
         g_alvo = limpar_string(match_gaiola.group(1))
-        df_target = pd.DataFrame()
-        for col in df.columns:
-            if df[col].astype(str).apply(limpar_string).eq(g_alvo).any():
-                df_target = df[df[col].astype(str).apply(limpar_string) == g_alvo].copy()
-                break
-        
+        df_target = df[df.iloc[:, col_gaiola_idx].astype(str).apply(limpar_string) == g_alvo]
         if not df_target.empty:
-            col_end_idx, col_bairro_idx = None, None
-            for i, col_name in enumerate(df.columns):
-                c_name = str(col_name).upper()
-                if any(t in c_name for t in ['ADDRESS', 'ENDERE', 'LOGRA', 'RUA']): col_end_idx = i
-                if any(t in c_name for t in ['NEIGHBORHOOD', 'BAIRRO', 'SETOR']): col_bairro_idx = i
-            
-            # Cálculo Blindado de Paradas (Matemática Pura)
-            if col_end_idx is None: col_end_idx = 0
-            df_target['BASE_STOP'] = df_target.iloc[:, col_end_idx].apply(extrair_base_endereco)
-            paradas = df_target['BASE_STOP'].nunique()
-            
-            # Limpeza de Bairros (Python Fuzzy v3.18)
-            lista_bairros = []
-            if col_bairro_idx is not None:
-                # Padroniza e Deduplica nomes brutos para enviar menos ruído à IA
-                lista_bairros = df_target.iloc[:, col_bairro_idx].dropna().astype(str).apply(remover_acentos).unique().tolist()
-            
-            contexto_matematico = f"""
-            DADOS REAIS DA GAIOLA {g_alvo}:
-            - Pacotes: {len(df_target)}
-            - Paradas: {paradas}
-            - Lista Bruta de Bairros (limpar typos): {', '.join(lista_bairros) if lista_bairros else 'N/A'}
-            """
+            bairros = df_target.iloc[:, col_bairro_idx].dropna().astype(str).apply(remover_acentos).unique().tolist() if col_bairro_idx is not None else []
+            contexto_especifico = f"DETALHE DA GAIOLA {g_alvo}: Bairros: {', '.join(bairros)}."
 
     prompt_base = f"""Você é o Waze Humano. 
-    INSTRUÇÕES DE INTELIGÊNCIA:
-    1. Se a lista de bairros contiver typos (ex: MOMTESE vs MONTESE), você deve fundi-los e informar apenas o bairro correto.
-    2. Nunca liste o mesmo bairro várias vezes com grafias diferentes.
-    3. Trate 'Gaiola', 'Planilha' e 'Rota' como sinônimos.
-    4. Mantenha a contagem exata de {paradas if match_gaiola and not df_target.empty else 'N/A'} paradas informada pelo sistema.
+    REGRAS DE RESPOSTA:
+    1. Use a TABELA GERAL abaixo para responder perguntas de comparação (qual tem mais, qual tem menos, etc).
+    2. Se perguntarem por uma letra específica (ex: 'gaiolas iniciadas por B'), filtre a tabela mentalmente antes de responder.
+    3. Trate 'Gaiola' e 'Planilha' como sinônimos.
+    4. Responda de forma curta, direta e logística.
     
-    {contexto_matematico if contexto_matematico else 'Resumo: ' + df.head(15).to_string()}
+    {contexto_comparativo}
+    {contexto_especifico}
     """
     
-    response = client.models.generate_content(model='gemini-2.5-flash', contents=f"{prompt_base}\nPergunta: {pergunta}")
+    response = client.models.generate_content(model='gemini-1.5-flash', contents=f"{prompt_base}\nPergunta: {pergunta}")
     return response.text
 
-# --- INTERFACE ---
+# --- INTERFACE (PRESERVADA) ---
 arquivo_upload = st.file_uploader("Upload", type=["xlsx"], label_visibility="collapsed", key="romaneio_upload")
 
 if arquivo_upload:
@@ -195,7 +198,7 @@ if arquivo_upload:
 
     tab1, tab2, tab3 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "🤖 Agente IA"])
 
-    with tab1: # TAB 1
+    with tab1:
         st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Gerar rota detalhada.</div>', unsafe_allow_html=True)
         g_unica = st.text_input("Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
         if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1", use_container_width=True):
@@ -218,7 +221,7 @@ if arquivo_upload:
             st.dataframe(st.session_state.df_visual_tab1, use_container_width=True, hide_index=True)
             st.download_button("📥 BAIXAR PLANILHA", st.session_state.dados_prontos, f"Rota_{g_unica}.xlsx", use_container_width=True)
 
-    with tab2: # TAB 2
+    with tab2:
         cod_m = st.text_area("Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_tab2")
         if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m_tab2", use_container_width=True):
             st.session_state.modo_atual = 'multiplas'
@@ -260,12 +263,12 @@ if arquivo_upload:
                         with cols_dl[idx % 3]:
                             st.download_button(label=f"📄 Rota {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
 
-    with tab3: # IA CALIBRADA v3.18
+    with tab3:
         p_ia = st.text_input("Dúvida logística:", key="p_ia_tab3")
         if st.button("🧠 CONSULTAR AGENTE IA", use_container_width=True, key="btn_ia_tab3"):
             cli = inicializar_ia()
             if cli:
-                with st.spinner("Limpando ruídos e mapeando bairros..."):
+                with st.spinner("Analisando todo o romaneio para comparar..."):
                     st.markdown(f'<div class="success-box">{agente_ia_treinado(cli, df_completo, p_ia)}</div>', unsafe_allow_html=True)
             else: st.error("API Key ausente.")
 else:
