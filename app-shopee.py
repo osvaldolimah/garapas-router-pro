@@ -348,10 +348,6 @@ def inicializar_ia() -> Optional[genai.Client]:
     """
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
-        
-        # DEBUG: Mostrar info da chave (sem expor a chave completa)
-        st.info(f"🔑 API Key detectada: {len(api_key)} caracteres, inicia com '{api_key[:10]}...'")
-        
         return genai.Client(api_key=api_key)
     except KeyError:
         st.error("""
@@ -498,22 +494,40 @@ Resposta objetiva:"""
         erro_completo = traceback.format_exc()
         erro_msg = str(e)
         
-        # Mostrar erro completo para debug
-        st.error(f"🔍 **Erro detalhado para debug:**")
-        st.code(erro_msg, language="text")
+        # Verificar tipo específico de erro
+        if 'API_KEY_INVALID' in erro_msg or 'API key not valid' in erro_msg:
+            return """❌ **API Key do Gemini inválida ou expirada**
+
+🔑 **Como resolver:**
+1. Acesse o Streamlit Cloud → Settings → Secrets
+2. Gere uma nova API Key em: https://aistudio.google.com/apikey
+3. Atualize o secret: `GEMINI_API_KEY = "sua-nova-chave"`
+4. Salve e aguarde o redeploy
+
+💡 **Enquanto isso:** Use as abas "Gaiola Única" ou "Múltiplas Gaiolas" para processar suas rotas normalmente."""
         
         if '404' in erro_msg or 'not found' in erro_msg.lower():
-            return """❌ **Modelo não encontrado**
+            return """❌ **Erro de configuração do modelo de IA**
             
 Os modelos Gemini disponíveis podem ter mudado. 
 
-**Solução:** O sistema funciona perfeitamente nas abas "Gaiola Única" e "Múltiplas Gaiolas"."""
+**Solução alternativa:**
+1. Verifique sua API key do Gemini
+2. Certifique-se de que tem acesso aos modelos Gemini
+3. Ou use as funcionalidades de processamento de gaiolas (abas 1 e 2)
+
+💡 O sistema funciona perfeitamente sem IA para filtrar e organizar rotas."""
+        
+        # Log detalhado apenas em ambiente de desenvolvimento
+        if 'localhost' in str(erro_msg) or 'DEBUG' in erro_msg:
+            st.error(f"🔍 **Debug - Erro detalhado:**\n```\n{erro_completo}\n```")
         
         return f"""❌ **Erro ao processar pergunta**
 
-**Tipo:** {type(e).__name__}
+**Tipo do erro:** {type(e).__name__}
+**Mensagem resumida:** {erro_msg[:200]}...
 
-💡 Use as abas "Gaiola Única" ou "Múltiplas Gaiolas" para resultados garantidos."""
+💡 **Dica:** Use as abas "Gaiola Única" ou "Múltiplas Gaiolas" para resultados garantidos."""
 
 # --- TUTORIAL ---
 st.markdown("""
