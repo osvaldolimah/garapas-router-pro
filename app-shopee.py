@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CONSTANTES ---
+# --- CONSTANTES (MARCO ZERO) ---
 TERMOS_COMERCIAIS = [
     'LOJA', 'MERCADO', 'MERCEARIA', 'FARMACIA', 'DROGARIA', 'SHOPPING', 
     'CLINICA', 'HOSPITAL', 'POSTO', 'OFICINA', 'RESTAURANTE', 'LANCHONETE', 
@@ -32,7 +32,7 @@ TERMOS_ANULADORES = [
     'DEPOIS', 'PERTO', 'VIZINHA'
 ]
 
-# --- SISTEMA DE DESIGN (CSS ORIGINAL) ---
+# --- SISTEMA DE DESIGN (MARCO ZERO) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap');
@@ -53,14 +53,16 @@ st.markdown("""
 # --- HEADER ---
 st.markdown('<div class="header-container"><h1 class="main-title">Filtro de Rotas e Paradas</h1></div>', unsafe_allow_html=True)
 
-# --- SESSÃO ---
+# --- INICIALIZAÇÃO DA SESSÃO ---
 if 'dados_prontos' not in st.session_state: st.session_state.dados_prontos = None
-if 'df_visualizacao' not in st.session_state: st.session_state.df_visualizacao = None
+if 'df_visual_tab1' not in st.session_state: st.session_state.df_visual_tab1 = None
 if 'modo_atual' not in st.session_state: st.session_state.modo_atual = 'unica'
 if 'resultado_multiplas' not in st.session_state: st.session_state.resultado_multiplas = None
 if 'df_cache' not in st.session_state: st.session_state.df_cache = None
+# NOVO: Memória persistente para arquivos gerados em lote
+if 'planilhas_sessao' not in st.session_state: st.session_state.planilhas_sessao = {}
 
-# --- FUNÇÕES AUXILIARES ---
+# --- FUNÇÕES AUXILIARES (LOGICA MARCO ZERO) ---
 @st.cache_data
 def remover_acentos(texto: str) -> str:
     return "".join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn').upper()
@@ -96,8 +98,8 @@ def processar_gaiola_unica(df_raw: pd.DataFrame, gaiola_alvo: str, col_gaiola_id
             for i, val in enumerate(linha):
                 if any(t in val for t in ['ENDERE', 'LOGRA', 'RUA', 'ADDRESS']):
                     col_end_idx = i; break
-            if col_end_idx is not None: break
-        if col_end_idx is None: col_end_idx = df_filt.apply(lambda x: x.astype(str).map(len).max()).idxmax()
+            if col_end_idx is None:
+                col_end_idx = df_filt.apply(lambda x: x.astype(str).map(len).max()).idxmax()
         df_filt['CHAVE_STOP'] = df_filt[col_end_idx].apply(extrair_base_endereco)
         mapa_stops = {end: i + 1 for i, end in enumerate(df_filt['CHAVE_STOP'].unique())}
         saida = pd.DataFrame()
@@ -121,7 +123,7 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         if not encontrado: resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
     return resultados
 
-# --- IA: INICIALIZAÇÃO E AGENTE (LOGICA DE CALCULO MATEMÁTICO PRESERVADA) ---
+# --- IA: MOTOR DE ANALISE (2026 STABLE) ---
 def inicializar_ia():
     try: return genai.Client(api_key=st.secrets["GEMINI_API_KEY"], http_options=HttpOptions(api_version='v1'))
     except: return None
@@ -137,12 +139,12 @@ def agente_ia_treinado(client, df, pergunta):
                 df_target = df[df[col].astype(str).apply(limpar_string) == g_alvo].copy()
                 break
         if not df_target.empty:
-            col_end_idx = next((i for i, v in enumerate(df.iloc[0].values) if any(t in str(v).upper() for t in ['ENDERE', 'LOGRA', 'RUA', 'ADDRESS'])), df_target.apply(lambda x: x.astype(str).map(len).max()).idxmax())
+            col_end_idx = next((i for i, v in enumerate(df.iloc[0].values) if any(t in str(v).upper() for t in ['ENDERE', 'LOGRA', 'RUA', 'ADDRESS'])), 0)
             df_target['BASE_STOP'] = df_target.iloc[:, col_end_idx].apply(extrair_base_endereco)
             paradas = df_target['BASE_STOP'].nunique()
-            contexto_matematico = f"SISTEMA: Gaiola {g_alvo} tem EXATAMENTE {len(df_target)} pacotes e {paradas} paradas."
+            contexto_matematico = f"SISTEMA: A gaiola {g_alvo} contém exatamente {len(df_target)} pacotes e {paradas} paradas."
 
-    prompt = f"Você é o Waze Humano. Regras: {TERMOS_COMERCIAIS}. {contexto_matematico if contexto_matematico else 'Amostra: ' + df.head(30).to_string()}"
+    prompt = f"Você é o Waze Humano. {contexto_matematico if contexto_matematico else 'Amostra: ' + df.head(20).to_string()}"
     response = client.models.generate_content(model='gemini-2.5-flash', contents=f"{prompt}\nPergunta: {pergunta}")
     return response.text
 
@@ -156,9 +158,10 @@ if arquivo_upload:
 
     tab1, tab2, tab3 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "🤖 Agente IA"])
 
-    with tab1: # RESTAURAÇÃO TOTAL TAB 1
-        g_unica = st.text_input("Digite o código da gaiola", placeholder="Ex: B-50", key="gui").strip().upper()
-        if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u", use_container_width=True):
+    with tab1: # RESTAURAÇÃO COMPLETA TAB 1
+        st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Gerar rota detalhada.</div>', unsafe_allow_html=True)
+        g_unica = st.text_input("Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
+        if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1", use_container_width=True):
             st.session_state.modo_atual = 'unica'
             target = limpar_string(g_unica); enc = False
             for aba in xl.sheet_names:
@@ -169,43 +172,64 @@ if arquivo_upload:
                     if res:
                         enc = True; buf = io.BytesIO()
                         with pd.ExcelWriter(buf, engine='openpyxl') as w: res['dataframe'].to_excel(w, index=False)
-                        st.session_state.dados_prontos = buf.getvalue(); st.session_state.df_visualizacao = res['dataframe']; st.session_state.metricas = res; break
+                        st.session_state.dados_prontos = buf.getvalue(); st.session_state.df_visual_tab1 = res['dataframe']; st.session_state.metricas_tab1 = res; break
             if not enc: st.error("Não encontrada.")
+        
+        if st.session_state.modo_atual == 'unica' and st.session_state.dados_prontos:
+            m = st.session_state.metricas_tab1; c = st.columns(3)
+            c[0].metric("📦 Pacotes", m["pacotes"]); c[1].metric("📍 Paradas", m["paradas"]); c[2].metric("🏪 Comércios", m["comercios"])
+            st.dataframe(st.session_state.df_visual_tab1, use_container_width=True, hide_index=True)
+            st.download_button("📥 BAIXAR PLANILHA", st.session_state.dados_prontos, f"Rota_{g_unica}.xlsx", use_container_width=True)
 
-    with tab2: # RESTAURAÇÃO TOTAL TAB 2
-        cod_m = st.text_area("Digite os códigos das gaiolas (um por linha)", placeholder="A-36\nB-50", key="c_m")
-        if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m", use_container_width=True):
+    with tab2: # RESTAURAÇÃO COMPLETA TAB 2 + FIX DE PERSISTÊNCIA
+        cod_m = st.text_area("Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_tab2")
+        if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m_tab2", use_container_width=True):
             st.session_state.modo_atual = 'multiplas'
             lista = [c.strip().upper() for c in cod_m.split('\n') if c.strip()]
             if lista: st.session_state.resultado_multiplas = processar_multiplas_gaiolas(arquivo_upload, lista)
 
-    with tab3: # MANUTENÇÃO DA IA CORRIGIDA
-        p_ia = st.text_input("Sua dúvida sobre o romaneio:", key="p_ia")
-        if st.button("🧠 CONSULTAR AGENTE IA", use_container_width=True):
+        if st.session_state.modo_atual == 'multiplas' and st.session_state.resultado_multiplas:
+            res = st.session_state.resultado_multiplas
+            st.dataframe(pd.DataFrame([{'Gaiola': k, 'Status': '✅' if v['encontrado'] else '❌', 'Pacotes': v['pacotes'], 'Paradas': v['paradas']} for k, v in res.items()]), use_container_width=True, hide_index=True)
+            
+            g_enc = [k for k, v in res.items() if v['encontrado']]
+            if g_enc:
+                st.markdown("---"); st.markdown("##### ✅ Selecione para download individual:")
+                selecionadas = []
+                cols = st.columns(3)
+                for i, g in enumerate(g_enc):
+                    with cols[i % 3]:
+                        if st.checkbox(f"**{g}**", key=f"chk_m_{g}"): selecionadas.append(g)
+                
+                # CORREÇÃO: Gerar e salvar na sessão para evitar que sumam
+                if selecionadas and st.button("📥 PREPARAR ARQUIVOS CIRCUIT"):
+                    st.session_state.planilhas_sessao = {}
+                    for s in selecionadas:
+                        target_l = limpar_string(s)
+                        for aba in xl.sheet_names:
+                            df_r = pd.read_excel(xl, sheet_name=aba, header=None, engine='openpyxl')
+                            idx_g = next((c for c in df_r.columns if df_r[c].astype(str).apply(limpar_string).eq(target_l).any()), None)
+                            if idx_g is not None:
+                                r_ind = processar_gaiola_unica(df_r, s, idx_g)
+                                if r_ind:
+                                    b_ind = io.BytesIO()
+                                    with pd.ExcelWriter(b_ind, engine='openpyxl') as w: r_ind['dataframe'].to_excel(w, index=False)
+                                    st.session_state.planilhas_sessao[s] = b_ind.getvalue()
+                                    break
+                
+                # EXIBIÇÃO PERSISTENTE DOS BOTÕES
+                if st.session_state.planilhas_sessao:
+                    st.markdown("##### 📥 Downloads Prontos:")
+                    cols_dl = st.columns(3)
+                    for idx, (nome, data) in enumerate(st.session_state.planilhas_sessao.items()):
+                        with cols_dl[idx % 3]:
+                            st.download_button(label=f"📄 Rota {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
+
+    with tab3: # IA CALIBRADA
+        p_ia = st.text_input("Sua dúvida logada no romaneio:", key="p_ia_tab3")
+        if st.button("🧠 CONSULTAR AGENTE IA", use_container_width=True, key="btn_ia_tab3"):
             cli = inicializar_ia()
             if cli: st.markdown(f'<div class="success-box">{agente_ia_treinado(cli, df_completo, p_ia)}</div>', unsafe_allow_html=True)
             else: st.error("API Key ausente.")
-
-    # RESULTADOS (VISIBILIDADE DO MARCO ZERO)
-    if st.session_state.modo_atual == 'unica' and st.session_state.dados_prontos:
-        m = st.session_state.metricas; c = st.columns(3)
-        c[0].metric("📦 Pacotes", m["pacotes"]); c[1].metric("📍 Paradas", m["paradas"]); c[2].metric("🏪 Comércios", m["comercios"])
-        st.dataframe(st.session_state.df_visualizacao, use_container_width=True, hide_index=True)
-        st.download_button("📥 BAIXAR PLANILHA", st.session_state.dados_prontos, "Rota.xlsx", use_container_width=True)
-
-    if st.session_state.modo_atual == 'multiplas' and st.session_state.resultado_multiplas:
-        res = st.session_state.resultado_multiplas
-        df_r = pd.DataFrame([{'Gaiola': k, 'Status': '✅' if v['encontrado'] else '❌', 'Pacotes': v['pacotes'], 'Paradas': v['paradas']} for k, v in res.items()])
-        st.dataframe(df_r, use_container_width=True, hide_index=True)
-        g_enc = [k for k, v in res.items() if v['encontrado']]
-        if g_enc:
-            st.markdown("---"); st.markdown("##### ✅ Selecione para download:")
-            selecionadas = []
-            cols = st.columns(3)
-            for i, g in enumerate(g_enc):
-                with cols[i % 3]:
-                    if st.checkbox(f"**{g}**", key=f"chk_{g}"): selecionadas.append(g)
-            if selecionadas and st.button("📥 GERAR PLANILHAS SELECIONADAS"):
-                st.success(f"{len(selecionadas)} planilhas prontas para geração.")
 else:
     st.info("📁 Aguardando romaneio.")
