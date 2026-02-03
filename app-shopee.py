@@ -132,10 +132,13 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         if not encontrado: resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
     return resultados
 
-# --- IA: MOTOR DE ANALISE (v3.21 - DIAGNÓSTICO ATIVADO) ---
+# --- IA: MOTOR DE ANALISE (v3.22 - REMOÇÃO DE TRAVA DE VERSÃO) ---
 def inicializar_ia():
-    try: return genai.Client(api_key=st.secrets["GEMINI_API_KEY"], http_options=HttpOptions(api_version='v1'))
-    except: return None
+    try:
+        # Removida a trava HttpOptions(api_version='v1') para evitar erro 404
+        return genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+    except:
+        return None
 
 def gerar_resumo_estatico_ia(df):
     try:
@@ -159,11 +162,9 @@ def gerar_resumo_estatico_ia(df):
 
 def agente_ia_treinado(client, df, pergunta):
     try:
-        # 1. Garantir resumo matemático
         if st.session_state.resumo_ia is None:
             st.session_state.resumo_ia = gerar_resumo_estatico_ia(df)
 
-        # 2. Contexto de Bairros (v3.18)
         contexto_bairros = ""
         match_gaiola = re.search(r'([A-Z][- ]?\d+)', pergunta.upper())
         if match_gaiola:
@@ -176,23 +177,21 @@ def agente_ia_treinado(client, df, pergunta):
                 bairros = df_target.iloc[:, col_b_idx].dropna().astype(str).apply(remover_acentos).unique().tolist()
                 contexto_bairros = f"BAIRROS DA GAIOLA {g_alvo}: {', '.join(bairros)}."
 
-        prompt_base = f"""Você é o Waze Humano, estrategista de logística.
-        Use estes dados calculados para responder:
+        prompt_base = f"""Você é o Waze Humano. Use estes dados calculados:
         {st.session_state.resumo_ia}
         {contexto_bairros}
         
-        INSTRUÇÕES:
-        - Para comparações (mais/menos paradas), use a TABELA GERAL.
-        - Se encontrar bairros com grafias parecidas, agrupe-os.
-        - Seja direto e profissional.
+        REGRAS:
+        - Para comparações (quem tem mais/menos paradas), use a TABELA GERAL.
+        - Agrupe bairros com erros de digitação óbvios.
+        - Responda de forma curta e logística.
         """
         
         response = client.models.generate_content(model='gemini-1.5-flash', contents=f"{prompt_base}\nPergunta: {pergunta}")
         return response.text
     except Exception as e:
-        # MODO DE DIAGNÓSTICO: Mostra o erro real na tela
         st.error(f"Erro detectado no Agente IA: {str(e)}")
-        return "⚠️ Ocorreu um erro técnico. O detalhe foi exibido acima para análise."
+        return "⚠️ Erro técnico na conexão. O detalhe acima ajuda o desenvolvedor."
 
 # --- INTERFACE ---
 arquivo_upload = st.file_uploader("Upload", type=["xlsx"], label_visibility="collapsed", key="romaneio_upload")
@@ -277,8 +276,8 @@ if arquivo_upload:
         if st.button("🧠 CONSULTAR AGENTE", use_container_width=True):
             cli = inicializar_ia()
             if cli:
-                with st.spinner("O Agente está analisando as rotas..."):
+                with st.spinner("Conectando com o cérebro da rota..."):
                     st.markdown(f'<div class="success-box">{agente_ia_treinado(cli, df_completo, p_ia)}</div>', unsafe_allow_html=True)
-            else: st.error("API Key (Secrets) não configurada.")
+            else: st.error("Erro na inicialização da API. Verifique sua chave.")
 else:
     st.info("📁 Aguardando romaneio para iniciar a operação.")
