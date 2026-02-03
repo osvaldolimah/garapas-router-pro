@@ -3,97 +3,117 @@ import pandas as pd
 import re
 import io
 
-# --- CONFIGURAÇÃO E ESTILO ---
+# --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Waze Humano - Shopee Turbo", layout="wide", page_icon="🚚")
 
+# --- ESTILO ---
 st.markdown("""
     <style>
-    .stButton>button { background-color: #ff4b4b; color: white; font-weight: bold; border-radius: 8px; height: 3em; }
-    .main { background-color: #f0f2f6; }
-    .metric-card { background-color: white; padding: 15px; border-radius: 10px; border-left: 5px solid #ff4b4b; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
+    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #ff4b4b; color: white; font-weight: bold; }
+    .main { background-color: #f5f5f5; }
+    .css-1r6slb0 { background-color: white; padding: 20px; border-radius: 10px; box-shadow: 2px 2px 10px rgba(0,0,0,0.1); }
     </style>
     """, unsafe_allow_html=True)
 
-# --- NÚCLEO LOGÍSTICO (SUA LÓGICA DE CONFIANÇA) ---
-
-def limpar_gaiola(valor):
-    """Transforma c42, C 42, c-42 no padrão oficial C-42"""
-    if pd.isna(valor): return ""
-    texto = str(valor).upper().strip()
+# --- FUNÇÕES DE LIMPEZA E TRATAMENTO ---
+def limpar_gaiola(texto):
+    """Corrige erros de digitação: c42, C 42 -> C-42"""
+    if pd.isna(texto): return ""
+    texto = str(texto).upper().strip()
     match = re.search(r'C[- ]?(\d+)', texto)
     if match:
         return f"C-{match.group(1)}"
     return texto
 
-def detectar_coluna_gaiolas(df):
-    """Varre as colunas para achar o padrão C-XX (Independente do nome da coluna)"""
-    for col in df.columns:
-        amostra = df[col].astype(str).str.contains(r'[Cc][- ]?\d+', na=False)
-        if amostra.mean() > 0.3:
-            return col
-    return None
+def baixar_excel(df, nome_arquivo):
+    """Gera o arquivo pronto para o Circuit"""
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False)
+    return output.getvalue()
+
+# --- LÓGICA DE PROCESSAMENTO ---
+def processar_gaiola_unica(df, gaiola_alvo):
+    g_limpa = limpar_gaiola(gaiola_alvo)
+    df_filtrado = df[df['Gaiola_Limpa'] == g_limpa]
+    
+    if not df_filtrado.empty:
+        st.success(f"✅ Gaiola {g_limpa}: {len(df_filtrado)} pacotes encontrados.")
+        
+        # Métricas Rápidas
+        c1, c2 = st.columns(2)
+        with c1: st.metric("Total de Pacotes", len(df_filtrado))
+        with c2: st.metric("Bairros Diferentes", df_filtrado['Bairro'].nunique() if 'Bairro' in df_filtrado.columns else "N/A")
+        
+        # Pré-visualização
+        st.write("### Pré-visualização da Rota")
+        st.dataframe(df_filtrado, use_container_width=True)
+        
+        # Botão de Download para o Circuit
+        excel_data = baixar_excel(df_filtrado, f"ROTA_{g_limpa}.xlsx")
+        st.download_button(
+            label=f"📥 BAIXAR PLANILHA {g_limpa} PARA O CIRCUIT",
+            data=excel_data,
+            file_name=f"ROTA_{g_limpa}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    else:
+        st.warning(f"⚠️ Nenhuma gaiola encontrada como '{gaiola_alvo}'.")
+
+def processar_multiplas_gaiolas(df, lista_gaiolas):
+    gaiolas_limpas = [limpar_gaiola(g.strip()) for g in lista_gaiolas.split(',')]
+    df_filtrado = df[df['Gaiola_Limpa'].isin(gaiolas_limpas)]
+    
+    if not df_filtrado.empty:
+        st.success(f"✅ Total: {len(df_filtrado)} pacotes em {len(gaiolas_limpas)} gaiolas.")
+        st.dataframe(df_filtrado, use_container_width=True)
+        
+        excel_data = baixar_excel(df_filtrado, "ROTA_MULTI_GAIOLAS.xlsx")
+        st.download_button(
+            label="📥 BAIXAR TODAS AS GAIOLAS (CIRCUIT)",
+            data=excel_data,
+            file_name="ROTA_MULTI_GAIOLAS.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    else:
+        st.error("❌ Nenhuma das gaiolas digitadas foi encontrada.")
 
 # --- INTERFACE PRINCIPAL ---
-st.title("🚚 Waze Humano: Shopee Turbo")
-st.write(f"Estrategista de Rotas | Fortaleza, CE")
+st.title("🚚 Waze Humano - Shopee Turbo (Ponto Alfa)")
 
 with st.sidebar:
-    st.header("📦 Importação")
-    uploaded_file = st.file_uploader("Subir Romaneio Shopee (Excel)", type=['xlsx'])
-    if st.button("🔄 Reiniciar App"): st.rerun()
+    st.header("📂 Arquivos")
+    arquivo = st.file_uploader("Carregue o Romaneio Excel", type=['xlsx'])
+    if st.button("🔄 Reiniciar Sistema"): st.rerun()
 
-if uploaded_file:
-    # Lemos os dados e já aplicamos a inteligência de colunas do Ponto Alfa
-    df = pd.read_excel(uploaded_file)
-    nome_coluna_gaiola = detectar_coluna_gaiolas(df)
+if arquivo:
+    df = pd.read_excel(arquivo)
     
-    if nome_coluna_gaiola:
-        df['Gaiola_Limpa'] = df[nome_coluna_gaiola].apply(limpar_gaiola)
+    # Busca automática da coluna de Gaiola (por conteúdo)
+    col_gaiola = None
+    for col in df.columns:
+        if df[col].astype(str).str.contains(r'[Cc][- ]?\d+', na=False).any():
+            col_gaiola = col
+            break
+            
+    if col_gaiola:
+        df['Gaiola_Limpa'] = df[col_gaiola].apply(limpar_gaiola)
         
-        # Painel de Métricas (Visibilidade Total)
-        c1, c2, c3 = st.columns(3)
-        with c1: st.markdown(f"<div class='metric-card'><b>Total de Pacotes:</b><br>{len(df)}</div>", unsafe_allow_html=True)
-        with c2: st.markdown(f"<div class='metric-card'><b>Gaiolas no Arquivo:</b><br>{df['Gaiola_Limpa'].nunique()}</div>", unsafe_allow_html=True)
-        with c3: st.markdown(f"<div class='metric-card'><b>Bairros Detectados:</b><br>{df['Bairro'].nunique() if 'Bairro' in df.columns else 'N/A'}</div>", unsafe_allow_html=True)
-
-        st.markdown("---")
+        aba1, aba2 = st.tabs(["📍 Gaiola Única", "📦 Múltiplas Gaiolas"])
         
-        # --- BUSCA E FILTRAGEM ---
-        st.subheader("🎯 Filtrar para o Circuit")
-        busca = st.text_input("Quais gaiolas você vai carregar? (Ex: c42, C01, C 15)", placeholder="Digite e clique no botão abaixo...")
-        
-        if st.button("🔍 PROCURAR GAIOLA"):
-            if busca:
-                # Normaliza o que o usuário digitou para bater com o Excel
-                termos_busca = [limpar_gaiola(t.strip()) for t in busca.split(',')]
-                df_filtrado = df[df['Gaiola_Limpa'].isin(termos_busca)]
+        with aba1:
+            gaiola_input = st.text_input("Digite o código da gaiola (Ex: c42):")
+            if st.button("Procurar Gaiola Única"):
+                processar_gaiola_unica(df, gaiola_input)
                 
-                if not df_filtrado.empty:
-                    st.success(f"✅ Sucesso! {len(df_filtrado)} pacotes prontos para a rota.")
-                    
-                    # Pre-visualização rápida antes de baixar
-                    st.dataframe(df_filtrado, use_container_width=True)
-                    
-                    # Gerador do Excel para o Circuit
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        df_filtrado.to_excel(writer, index=False)
-                    
-                    st.download_button(
-                        label="📥 BAIXAR PLANILHA PARA O CIRCUIT",
-                        data=output.getvalue(),
-                        file_name=f"ROTA_WAZE_HUMANO.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-                else:
-                    st.warning("Nenhuma gaiola encontrada com esses códigos. Verifique o arquivo.")
-            else:
-                st.info("Digite o código de uma gaiola para filtrar.")
+        with aba2:
+            multi_input = st.text_area("Digite os códigos separados por vírgula (Ex: c42, c01, C 15):")
+            if st.button("Processar Múltiplas"):
+                processar_multiplas_gaiolas(df, multi_input)
     else:
-        st.error("❌ Não foi possível identificar as Gaiolas. Verifique se o arquivo segue o padrão da Shopee.")
-
+        st.error("Não identifiquei o padrão de gaiolas 'C-XX' neste arquivo.")
 else:
-    st.info("Aguardando upload do romaneio para iniciar a estratégia de rotas.")
+    st.info("Aguardando romaneio para iniciar a estratégia de rotas.")
 
 st.markdown("---")
-st.caption("Waze Humano v3.2 (Versão Estável) - Foco em Agilidade Logística")
+st.caption("Estrategista de Rotas - Fortaleza/CE")
