@@ -32,7 +32,7 @@ TERMOS_ANULADORES = [
     'DEPOIS', 'PERTO', 'VIZINHA'
 ]
 
-# --- SISTEMA DE DESIGN (MARCO ZERO) ---
+# --- SISTEMA DE DESIGN (MARCO ZERO - CORREÇÃO MOBILE) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap');
@@ -40,12 +40,14 @@ st.markdown("""
     .stApp { background-color: var(--shopee-bg); font-family: 'Inter', sans-serif; }
     .header-container { text-align: center; padding: 20px 10px; background-color: white; border-bottom: 4px solid var(--shopee-orange); margin-bottom: 20px; border-radius: 0 0 20px 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
     
-    /* MELHORIA MOBILE: Fonte do título reduzida */
+    /* CORREÇÃO FORÇADA PARA MOBILE */
     .main-title { 
-        color: var(--shopee-orange); 
-        font-size: clamp(1.1rem, 4vw, 1.6rem); 
-        font-weight: 800; 
-        margin: 0; 
+        color: var(--shopee-orange) !important; 
+        font-size: clamp(1.0rem, 4vw, 1.4rem) !important; 
+        font-weight: 800 !important; 
+        margin: 0 !important;
+        line-height: 1.2 !important;
+        display: block !important;
     }
     
     .tutorial-section { background: white; padding: 15px; border-radius: 15px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.03); }
@@ -165,7 +167,7 @@ if arquivo_upload:
 
     tab1, tab2, tab3 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "🤖 Agente IA"])
 
-    with tab1: # TAB 1
+    with tab1:
         st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Gerar rota detalhada.</div>', unsafe_allow_html=True)
         g_unica = st.text_input("Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
         if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1", use_container_width=True):
@@ -188,7 +190,7 @@ if arquivo_upload:
             st.dataframe(st.session_state.df_visual_tab1, use_container_width=True, hide_index=True)
             st.download_button("📥 BAIXAR PLANILHA", st.session_state.dados_prontos, f"Rota_{g_unica}.xlsx", use_container_width=True)
 
-    with tab2: # TAB 2
+    with tab2:
         cod_m = st.text_area("Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_tab2")
         if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m_tab2", use_container_width=True):
             st.session_state.modo_atual = 'multiplas'
@@ -230,7 +232,7 @@ if arquivo_upload:
                         with cols_dl[idx % 3]:
                             st.download_button(label=f"📄 Rota {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
 
-    with tab3: # IA
+    with tab3:
         p_ia = st.text_input("Sua dúvida logada no romaneio:", key="p_ia_tab3")
         if st.button("🧠 CONSULTAR AGENTE IA", use_container_width=True, key="btn_ia_tab3"):
             cli = inicializar_ia()
