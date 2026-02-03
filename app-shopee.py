@@ -32,7 +32,7 @@ TERMOS_ANULADORES = [
     'DEPOIS', 'PERTO', 'VIZINHA'
 ]
 
-# --- SISTEMA DE DESIGN (MARCO ZERO - CORREÇÃO MOBILE) ---
+# --- SISTEMA DE DESIGN (MARCO ZERO + MOBILE FORCE v3.15) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap');
@@ -40,7 +40,6 @@ st.markdown("""
     .stApp { background-color: var(--shopee-bg); font-family: 'Inter', sans-serif; }
     .header-container { text-align: center; padding: 20px 10px; background-color: white; border-bottom: 4px solid var(--shopee-orange); margin-bottom: 20px; border-radius: 0 0 20px 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
     
-    /* CORREÇÃO FORÇADA PARA MOBILE */
     .main-title { 
         color: var(--shopee-orange) !important; 
         font-size: clamp(1.0rem, 4vw, 1.4rem) !important; 
@@ -107,8 +106,7 @@ def processar_gaiola_unica(df_raw: pd.DataFrame, gaiola_alvo: str, col_gaiola_id
             for i, val in enumerate(linha):
                 if any(t in val for t in ['ENDERE', 'LOGRA', 'RUA', 'ADDRESS']):
                     col_end_idx = i; break
-            if col_end_idx is None:
-                col_end_idx = df_filt.apply(lambda x: x.astype(str).map(len).max()).idxmax()
+        if col_end_idx is None: col_end_idx = df_filt.apply(lambda x: x.astype(str).map(len).max()).idxmax()
         df_filt['CHAVE_STOP'] = df_filt[col_end_idx].apply(extrair_base_endereco)
         mapa_stops = {end: i + 1 for i, end in enumerate(df_filt['CHAVE_STOP'].unique())}
         saida = pd.DataFrame()
@@ -132,7 +130,7 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         if not encontrado: resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
     return resultados
 
-# --- IA: MOTOR DE ANALISE (2026 STABLE) ---
+# --- IA: MOTOR DE ANALISE (v3.16 - CORREÇÃO DE BAIRROS E LITERALIDADE) ---
 def inicializar_ia():
     try: return genai.Client(api_key=st.secrets["GEMINI_API_KEY"], http_options=HttpOptions(api_version='v1'))
     except: return None
@@ -147,14 +145,45 @@ def agente_ia_treinado(client, df, pergunta):
             if df[col].astype(str).apply(limpar_string).eq(g_alvo).any():
                 df_target = df[df[col].astype(str).apply(limpar_string) == g_alvo].copy()
                 break
+        
         if not df_target.empty:
-            col_end_idx = next((i for i, v in enumerate(df.iloc[0].values) if any(t in str(v).upper() for t in ['ENDERE', 'LOGRA', 'RUA', 'ADDRESS'])), 0)
+            # Localizar colunas de endereço e bairro automaticamente
+            col_end_idx, col_bairro_idx = None, None
+            for r in range(min(15, len(df))):
+                linha = [str(x).upper() for x in df.iloc[r].values]
+                for i, val in enumerate(linha):
+                    if any(t in val for t in ['ENDERE', 'LOGRA', 'RUA', 'ADDRESS']): col_end_idx = i
+                    if any(t in val for t in ['BAIRRO', 'SETOR', 'NEIGHBORHOOD']): col_bairro_idx = i
+            
+            if col_end_idx is None: col_end_idx = 0
+            
+            # Cálculo de paradas (v3.15)
             df_target['BASE_STOP'] = df_target.iloc[:, col_end_idx].apply(extrair_base_endereco)
             paradas = df_target['BASE_STOP'].nunique()
-            contexto_matematico = f"SISTEMA: A gaiola {g_alvo} contém exatamente {len(df_target)} pacotes e {paradas} paradas."
+            
+            # Extração de Bairros (v3.16)
+            lista_bairros = []
+            if col_bairro_idx is not None:
+                lista_bairros = df_target.iloc[:, col_bairro_idx].dropna().unique().tolist()
+            
+            contexto_matematico = f"""
+            SISTEMA (Fatos Reais do Romaneio):
+            - Gaiola/Rota: {g_alvo}
+            - Total de Pacotes: {len(df_target)}
+            - Total de Paradas: {paradas}
+            - Bairros atendidos: {', '.join(map(str, lista_bairros)) if lista_bairros else 'Informação não disponível no arquivo.'}
+            """
 
-    prompt = f"Você é o Waze Humano. {contexto_matematico if contexto_matematico else 'Amostra: ' + df.head(20).to_string()}"
-    response = client.models.generate_content(model='gemini-2.5-flash', contents=f"{prompt}\nPergunta: {pergunta}")
+    prompt_base = f"""Você é o Waze Humano, estrategista de logística da Shopee em Fortaleza.
+    REGRAS DE OURO:
+    1. 'Gaiola', 'Planilha' e 'Rota' referem-se aos mesmos dados. Não seja literal demais.
+    2. Se o usuário perguntar por bairros, use EXCLUSIVAMENTE a lista fornecida pelo SISTEMA abaixo.
+    3. Nunca diga que uma gaiola não tem bairros; ela atende os bairros dos pacotes que estão dentro dela.
+    
+    {contexto_matematico if contexto_matematico else 'DADOS GERAIS: ' + df.head(20).to_string()}
+    """
+    
+    response = client.models.generate_content(model='gemini-2.5-flash', contents=f"{prompt_base}\nPergunta do Usuário: {pergunta}")
     return response.text
 
 # --- INTERFACE ---
@@ -167,7 +196,7 @@ if arquivo_upload:
 
     tab1, tab2, tab3 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "🤖 Agente IA"])
 
-    with tab1:
+    with tab1: # TAB 1
         st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Gerar rota detalhada.</div>', unsafe_allow_html=True)
         g_unica = st.text_input("Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
         if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1", use_container_width=True):
@@ -190,7 +219,7 @@ if arquivo_upload:
             st.dataframe(st.session_state.df_visual_tab1, use_container_width=True, hide_index=True)
             st.download_button("📥 BAIXAR PLANILHA", st.session_state.dados_prontos, f"Rota_{g_unica}.xlsx", use_container_width=True)
 
-    with tab2:
+    with tab2: # TAB 2
         cod_m = st.text_area("Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_tab2")
         if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m_tab2", use_container_width=True):
             st.session_state.modo_atual = 'multiplas'
@@ -232,11 +261,13 @@ if arquivo_upload:
                         with cols_dl[idx % 3]:
                             st.download_button(label=f"📄 Rota {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
 
-    with tab3:
-        p_ia = st.text_input("Sua dúvida logada no romaneio:", key="p_ia_tab3")
+    with tab3: # IA CALIBRADA v3.16
+        p_ia = st.text_input("Sua dúvida sobre bairros, paradas ou rotas:", key="p_ia_tab3")
         if st.button("🧠 CONSULTAR AGENTE IA", use_container_width=True, key="btn_ia_tab3"):
             cli = inicializar_ia()
-            if cli: st.markdown(f'<div class="success-box">{agente_ia_treinado(cli, df_completo, p_ia)}</div>', unsafe_allow_html=True)
+            if cli:
+                with st.spinner("O Agente está mapeando a rota..."):
+                    st.markdown(f'<div class="success-box">{agente_ia_treinado(cli, df_completo, p_ia)}</div>', unsafe_allow_html=True)
             else: st.error("API Key ausente.")
 else:
     st.info("📁 Aguardando romaneio.")
