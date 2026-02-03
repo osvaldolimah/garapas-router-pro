@@ -4,7 +4,7 @@ import io
 import unicodedata
 import re
 from typing import List, Dict, Optional
-import google.generativeai as genai  # MUDANÇA PARA BIBLIOTECA ESTÁVEL
+import google.generativeai as genai
 
 # --- CONFIGURAÇÃO DA PÁGINA (MARCO ZERO) ---
 st.set_page_config(
@@ -31,7 +31,7 @@ TERMOS_ANULADORES = [
     'DEPOIS', 'PERTO', 'VIZINHA'
 ]
 
-# --- SISTEMA DE DESIGN (MARCO ZERO + MOBILE FORCE v3.15) ---
+# --- DESIGN MOBILE FORCE (v3.15) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap');
@@ -47,6 +47,8 @@ st.markdown("""
         display: block !important;
     }
     .stTabs [data-baseweb="tab-list"] { gap: 8px; background-color: white; padding: 10px; border-radius: 15px; }
+    .stTabs [data-baseweb="tab"] { height: 50px; background-color: #f0f0f0; border-radius: 10px; font-weight: 600; }
+    .stTabs [aria-selected="true"] { background-color: var(--shopee-orange) !important; color: white !important; }
     div.stButton > button { background-color: var(--shopee-orange) !important; color: white !important; font-size: 18px !important; font-weight: 700 !important; border-radius: 12px !important; width: 100% !important; height: 60px !important; border: none !important; }
     .success-box { background: #F0FDF4; border-left: 4px solid #16A34A; padding: 12px 16px; border-radius: 8px; margin: 10px 0; color: #065F46; }
     .info-box { background: #EFF6FF; border-left: 4px solid #2563EB; padding: 12px 16px; border-radius: 8px; margin: 10px 0; font-size: 0.9rem; color: #1E40AF; }
@@ -55,14 +57,14 @@ st.markdown("""
 
 st.markdown('<div class="header-container"><h1 class="main-title">Filtro de Rotas e Paradas</h1></div>', unsafe_allow_html=True)
 
-# --- ESTADO DA SESSÃO ---
+# --- SESSÃO ---
 if 'df_cache' not in st.session_state: st.session_state.df_cache = None
-if 'resumo_ia' not in st.session_state: st.session_state.resumo_ia = None
 if 'modo_atual' not in st.session_state: st.session_state.modo_atual = 'unica'
 if 'dados_prontos' not in st.session_state: st.session_state.dados_prontos = None
 if 'df_visual_tab1' not in st.session_state: st.session_state.df_visual_tab1 = None
-if 'planilhas_sessao' not in st.session_state: st.session_state.planilhas_sessao = {}
+if 'metricas_tab1' not in st.session_state: st.session_state.metricas_tab1 = None
 if 'resultado_multiplas' not in st.session_state: st.session_state.resultado_multiplas = None
+if 'planilhas_sessao' not in st.session_state: st.session_state.planilhas_sessao = {}
 
 # --- FUNÇÕES ---
 @st.cache_data
@@ -111,55 +113,40 @@ def processar_gaiola_unica(df_raw: pd.DataFrame, gaiola_alvo: str, col_gaiola_id
         return {'dataframe': saida, 'pacotes': len(saida), 'paradas': len(mapa_stops), 'comercios': len(saida[saida['Tipo'] == "🏪 Comércio"])}
     except: return None
 
-# --- IA BLINDADA (v3.24) ---
-def configurar_ia():
+# --- IA v3.18 (ESTABILIZADA) ---
+def inicializar_ia():
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         return genai.GenerativeModel('gemini-1.5-flash')
     except: return None
 
-def gerar_resumo_estatico_ia(df):
-    try:
-        col_g = next((i for i, c in enumerate(df.columns) if any(t in str(c).upper() for t in ['GAIOLA', 'LETRA', 'CANISTER'])), 0)
-        col_e = next((i for i, c in enumerate(df.columns) if any(t in str(c).upper() for t in ['ADDRESS', 'ENDERE', 'RUA'])), 0)
-        temp = df.copy()
-        temp['B_STOP'] = temp.iloc[:, col_e].apply(extrair_base_endereco)
-        resumo = temp.groupby(temp.columns[col_g]).agg(Pacotes=('B_STOP', 'count'), Paradas=('B_STOP', 'nunique')).reset_index()
-        texto = "TABELA GERAL:\n"
-        for _, row in resumo.iterrows():
-            texto += f"- Gaiola {row[0]}: {row['Pacotes']} pacotes, {row['Paradas']} paradas.\n"
-        return texto
-    except: return "Erro no processamento matemático."
-
 def agente_ia_treinado(model, df, pergunta):
     try:
-        if st.session_state.resumo_ia is None: st.session_state.resumo_ia = gerar_resumo_estatico_ia(df)
-        contexto_b = ""
         match = re.search(r'([A-Z][- ]?\d+)', pergunta.upper())
+        contexto = ""
         if match:
             g_alvo = limpar_string(match.group(1))
             col_g = next((i for i, c in enumerate(df.columns) if any(t in str(c).upper() for t in ['GAIOLA', 'LETRA'])), 0)
+            col_e = next((i for i, c in enumerate(df.columns) if any(t in str(c).upper() for t in ['ADDRESS', 'ENDERE'])), 0)
             col_b = next((i for i, c in enumerate(df.columns) if any(t in str(c).upper() for t in ['BAIRRO', 'NEIGHBORHOOD'])), None)
+            
             df_target = df[df.iloc[:, col_g].astype(str).apply(limpar_string) == g_alvo]
-            if not df_target.empty and col_b is not None:
-                bairros = df_target.iloc[:, col_b].dropna().astype(str).apply(remover_acentos).unique().tolist()
-                contexto_b = f"BAIRROS DA {g_alvo}: {', '.join(bairros)}."
+            if not df_target.empty:
+                stops = df_target.iloc[:, col_e].apply(extrair_base_endereco).nunique()
+                bairros = df_target.iloc[:, col_b].dropna().astype(str).apply(remover_acentos).unique().tolist() if col_b is not None else []
+                contexto = f"DADOS DA GAIOLA {g_alvo}: {len(df_target)} pacotes, {stops} paradas. Bairros: {', '.join(bairros)}."
 
-        prompt = f"Você é o Waze Humano, estrategista de rotas. Use estes dados:\n{st.session_state.resumo_ia}\n{contexto_b}\nResponda logisticamente: {pergunta}"
+        prompt = f"""Você é o Waze Humano. Use estes dados: {contexto if contexto else 'Resumo: ' + df.head(5).to_string()}
+        REGRAS: 1. Se houver bairros com nomes parecidos ou erros (ex: Momtese), agrupe no nome correto. 2. Responda logisticamente."""
         response = model.generate_content(prompt)
         return response.text
-    except Exception as e:
-        st.error(f"Erro na conexão blindada: {str(e)}")
-        return "⚠️ Tente novamente."
+    except: return "⚠️ Erro de conexão com a IA."
 
 # --- INTERFACE ---
 arquivo = st.file_uploader("Upload", type=["xlsx"], label_visibility="collapsed")
 
 if arquivo:
-    if st.session_state.df_cache is None:
-        st.session_state.df_cache = pd.read_excel(arquivo)
-        st.session_state.resumo_ia = gerar_resumo_estatico_ia(st.session_state.df_cache)
-    
+    if st.session_state.df_cache is None: st.session_state.df_cache = pd.read_excel(arquivo)
     df_completo = st.session_state.df_cache
     xl = pd.ExcelFile(arquivo)
     t1, t2, t3 = st.tabs(["🎯 Única", "📊 Lote", "🤖 IA"])
@@ -200,7 +187,6 @@ if arquivo:
                             if r: res_l[gn] = {'pacotes': r['pacotes'], 'paradas': r['paradas'], 'encontrado': True}; enc = True; break
                     if not enc: res_l[gn] = {'pacotes': 0, 'paradas': 0, 'encontrado': False}
                 st.session_state.resultado_multiplas = res_l
-
         if st.session_state.modo_atual == 'multiplas' and st.session_state.resultado_multiplas:
             res = st.session_state.resultado_multiplas
             st.dataframe(pd.DataFrame([{'Gaiola': k, 'Status': '✅' if v['encontrado'] else '❌', 'Paks': v['pacotes'], 'Stops': v['paradas']} for k, v in res.items()]), use_container_width=True, hide_index=True)
@@ -231,10 +217,9 @@ if arquivo:
     with t3:
         p = st.text_input("Dúvida:", key="i_p")
         if st.button("🧠 CONSULTAR", use_container_width=True):
-            modelo = configurar_ia()
+            modelo = inicializar_ia()
             if modelo:
-                with st.spinner("Handshake com o satélite..."):
+                with st.spinner("Conectando..."):
                     st.markdown(f'<div class="success-box">{agente_ia_treinado(modelo, df_completo, p)}</div>', unsafe_allow_html=True)
-            else: st.error("Erro na configuração da IA.")
 else:
-    st.info("📁 Suba o romaneio para iniciar.")
+    st.info("📁 Suba o romaneio.")
