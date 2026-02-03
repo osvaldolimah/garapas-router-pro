@@ -39,7 +39,15 @@ st.markdown("""
     :root { --shopee-orange: #EE4D2D; --shopee-bg: #F6F6F6; --placeholder-color: rgba(49, 51, 63, 0.4); }
     .stApp { background-color: var(--shopee-bg); font-family: 'Inter', sans-serif; }
     .header-container { text-align: center; padding: 20px 10px; background-color: white; border-bottom: 4px solid var(--shopee-orange); margin-bottom: 20px; border-radius: 0 0 20px 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
-    .main-title { color: var(--shopee-orange); font-size: clamp(1.4rem, 5vw, 2.2rem); font-weight: 800; margin: 0; }
+    
+    /* MELHORIA MOBILE: Fonte do título reduzida */
+    .main-title { 
+        color: var(--shopee-orange); 
+        font-size: clamp(1.1rem, 4vw, 1.6rem); 
+        font-weight: 800; 
+        margin: 0; 
+    }
+    
     .tutorial-section { background: white; padding: 15px; border-radius: 15px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.03); }
     .stTabs [data-baseweb="tab-list"] { gap: 8px; background-color: white; padding: 10px; border-radius: 15px; }
     .stTabs [data-baseweb="tab"] { height: 50px; background-color: #f0f0f0; border-radius: 10px; padding: 0 24px; font-weight: 600; border: 2px solid transparent; }
@@ -59,7 +67,6 @@ if 'df_visual_tab1' not in st.session_state: st.session_state.df_visual_tab1 = N
 if 'modo_atual' not in st.session_state: st.session_state.modo_atual = 'unica'
 if 'resultado_multiplas' not in st.session_state: st.session_state.resultado_multiplas = None
 if 'df_cache' not in st.session_state: st.session_state.df_cache = None
-# NOVO: Memória persistente para arquivos gerados em lote
 if 'planilhas_sessao' not in st.session_state: st.session_state.planilhas_sessao = {}
 
 # --- FUNÇÕES AUXILIARES (LOGICA MARCO ZERO) ---
@@ -158,7 +165,7 @@ if arquivo_upload:
 
     tab1, tab2, tab3 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "🤖 Agente IA"])
 
-    with tab1: # RESTAURAÇÃO COMPLETA TAB 1
+    with tab1: # TAB 1
         st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Gerar rota detalhada.</div>', unsafe_allow_html=True)
         g_unica = st.text_input("Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
         if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1", use_container_width=True):
@@ -181,7 +188,7 @@ if arquivo_upload:
             st.dataframe(st.session_state.df_visual_tab1, use_container_width=True, hide_index=True)
             st.download_button("📥 BAIXAR PLANILHA", st.session_state.dados_prontos, f"Rota_{g_unica}.xlsx", use_container_width=True)
 
-    with tab2: # RESTAURAÇÃO COMPLETA TAB 2 + FIX DE PERSISTÊNCIA
+    with tab2: # TAB 2
         cod_m = st.text_area("Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_tab2")
         if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m_tab2", use_container_width=True):
             st.session_state.modo_atual = 'multiplas'
@@ -201,7 +208,6 @@ if arquivo_upload:
                     with cols[i % 3]:
                         if st.checkbox(f"**{g}**", key=f"chk_m_{g}"): selecionadas.append(g)
                 
-                # CORREÇÃO: Gerar e salvar na sessão para evitar que sumam
                 if selecionadas and st.button("📥 PREPARAR ARQUIVOS CIRCUIT"):
                     st.session_state.planilhas_sessao = {}
                     for s in selecionadas:
@@ -217,7 +223,6 @@ if arquivo_upload:
                                     st.session_state.planilhas_sessao[s] = b_ind.getvalue()
                                     break
                 
-                # EXIBIÇÃO PERSISTENTE DOS BOTÕES
                 if st.session_state.planilhas_sessao:
                     st.markdown("##### 📥 Downloads Prontos:")
                     cols_dl = st.columns(3)
@@ -225,7 +230,7 @@ if arquivo_upload:
                         with cols_dl[idx % 3]:
                             st.download_button(label=f"📄 Rota {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
 
-    with tab3: # IA CALIBRADA
+    with tab3: # IA
         p_ia = st.text_input("Sua dúvida logada no romaneio:", key="p_ia_tab3")
         if st.button("🧠 CONSULTAR AGENTE IA", use_container_width=True, key="btn_ia_tab3"):
             cli = inicializar_ia()
