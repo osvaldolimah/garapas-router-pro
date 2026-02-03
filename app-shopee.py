@@ -106,7 +106,8 @@ def processar_gaiola_unica(df_raw: pd.DataFrame, gaiola_alvo: str, col_gaiola_id
             for i, val in enumerate(linha):
                 if any(t in val for t in ['ENDERE', 'LOGRA', 'RUA', 'ADDRESS']):
                     col_end_idx = i; break
-        if col_end_idx is None: col_end_idx = df_filt.apply(lambda x: x.astype(str).map(len).max()).idxmax()
+        if col_end_idx is None:
+            col_end_idx = df_filt.apply(lambda x: x.astype(str).map(len).max()).idxmax()
         df_filt['CHAVE_STOP'] = df_filt[col_end_idx].apply(extrair_base_endereco)
         mapa_stops = {end: i + 1 for i, end in enumerate(df_filt['CHAVE_STOP'].unique())}
         saida = pd.DataFrame()
@@ -130,7 +131,7 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         if not encontrado: resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
     return resultados
 
-# --- IA: MOTOR DE ANALISE (v3.16 - CORREÇÃO DE BAIRROS E LITERALIDADE) ---
+# --- IA: MOTOR DE ANALISE (v3.17 - RADAR DE CABEÇALHO E BAIRROS) ---
 def inicializar_ia():
     try: return genai.Client(api_key=st.secrets["GEMINI_API_KEY"], http_options=HttpOptions(api_version='v1'))
     except: return None
@@ -147,43 +148,47 @@ def agente_ia_treinado(client, df, pergunta):
                 break
         
         if not df_target.empty:
-            # Localizar colunas de endereço e bairro automaticamente
+            # NOVO RADAR v3.17: Procura primeiro nos cabeçalhos reais (Headers)
             col_end_idx, col_bairro_idx = None, None
-            for r in range(min(15, len(df))):
-                linha = [str(x).upper() for x in df.iloc[r].values]
-                for i, val in enumerate(linha):
-                    if any(t in val for t in ['ENDERE', 'LOGRA', 'RUA', 'ADDRESS']): col_end_idx = i
-                    if any(t in val for t in ['BAIRRO', 'SETOR', 'NEIGHBORHOOD']): col_bairro_idx = i
+            for i, col_name in enumerate(df.columns):
+                c_name = str(col_name).upper()
+                if any(t in c_name for t in ['ADDRESS', 'ENDERE', 'LOGRA', 'RUA']): col_end_idx = i
+                if any(t in c_name for t in ['NEIGHBORHOOD', 'BAIRRO', 'SETOR']): col_bairro_idx = i
             
+            # Fallback (Radar de Dados v3.16) se os cabeçalhos não ajudarem
+            if col_end_idx is None or col_bairro_idx is None:
+                for r in range(min(5, len(df))):
+                    linha = [str(x).upper() for x in df.iloc[r].values]
+                    for i, val in enumerate(linha):
+                        if col_end_idx is None and any(t in val for t in ['ENDERE', 'LOGRA', 'RUA']): col_end_idx = i
+                        if col_bairro_idx is None and any(t in val for t in ['BAIRRO', 'SETOR']): col_bairro_idx = i
+            
+            # Cálculo de paradas e bairros
             if col_end_idx is None: col_end_idx = 0
-            
-            # Cálculo de paradas (v3.15)
             df_target['BASE_STOP'] = df_target.iloc[:, col_end_idx].apply(extrair_base_endereco)
             paradas = df_target['BASE_STOP'].nunique()
             
-            # Extração de Bairros (v3.16)
             lista_bairros = []
             if col_bairro_idx is not None:
                 lista_bairros = df_target.iloc[:, col_bairro_idx].dropna().unique().tolist()
             
             contexto_matematico = f"""
-            SISTEMA (Fatos Reais do Romaneio):
-            - Gaiola/Rota: {g_alvo}
-            - Total de Pacotes: {len(df_target)}
-            - Total de Paradas: {paradas}
-            - Bairros atendidos: {', '.join(map(str, lista_bairros)) if lista_bairros else 'Informação não disponível no arquivo.'}
+            DADOS REAIS DA GAIOLA {g_alvo}:
+            - Pacotes: {len(df_target)}
+            - Paradas: {paradas}
+            - Bairros atendidos: {', '.join(map(str, lista_bairros)) if lista_bairros else 'Informação pendente.'}
             """
 
-    prompt_base = f"""Você é o Waze Humano, estrategista de logística da Shopee em Fortaleza.
-    REGRAS DE OURO:
-    1. 'Gaiola', 'Planilha' e 'Rota' referem-se aos mesmos dados. Não seja literal demais.
-    2. Se o usuário perguntar por bairros, use EXCLUSIVAMENTE a lista fornecida pelo SISTEMA abaixo.
-    3. Nunca diga que uma gaiola não tem bairros; ela atende os bairros dos pacotes que estão dentro dela.
+    prompt_base = f"""Você é o Waze Humano. Use APENAS os dados abaixo.
+    INSTRUÇÃO CRÍTICA:
+    1. Responda 'Quais bairros tem na gaiola' usando a lista 'Bairros atendidos'.
+    2. Não diga que a informação não está disponível se ela constar no contexto.
+    3. Trate Gaiola e Planilha como a mesma coisa.
     
-    {contexto_matematico if contexto_matematico else 'DADOS GERAIS: ' + df.head(20).to_string()}
+    {contexto_matematico if contexto_matematico else 'Resumo: ' + df.head(15).to_string()}
     """
     
-    response = client.models.generate_content(model='gemini-2.5-flash', contents=f"{prompt_base}\nPergunta do Usuário: {pergunta}")
+    response = client.models.generate_content(model='gemini-2.5-flash', contents=f"{prompt_base}\nPergunta: {pergunta}")
     return response.text
 
 # --- INTERFACE ---
@@ -261,12 +266,12 @@ if arquivo_upload:
                         with cols_dl[idx % 3]:
                             st.download_button(label=f"📄 Rota {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
 
-    with tab3: # IA CALIBRADA v3.16
-        p_ia = st.text_input("Sua dúvida sobre bairros, paradas ou rotas:", key="p_ia_tab3")
+    with tab3: # IA CALIBRADA v3.17
+        p_ia = st.text_input("Dúvida logística:", key="p_ia_tab3")
         if st.button("🧠 CONSULTAR AGENTE IA", use_container_width=True, key="btn_ia_tab3"):
             cli = inicializar_ia()
             if cli:
-                with st.spinner("O Agente está mapeando a rota..."):
+                with st.spinner("Analisando cabeçalhos e rotas..."):
                     st.markdown(f'<div class="success-box">{agente_ia_treinado(cli, df_completo, p_ia)}</div>', unsafe_allow_html=True)
             else: st.error("API Key ausente.")
 else:
