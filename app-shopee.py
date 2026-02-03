@@ -131,14 +131,22 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         if not encontrado: resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
     return resultados
 
-# --- IA: MOTOR DE ANALISE (BLINDAGEM v3.27) ---
+# --- IA: MOTOR DE ANALISE (v3.28) ---
 def inicializar_ia():
     try:
-        # AQUI ESTÁ A LINHA DA API KEY QUE VOCÊ PROCURA:
-        genai.configure(api_key=st.secrets["AIzaSyDGK_W0Fgj7RsMTIcB9ABGos-PyuT_Dd7w"])
+        # COLE SUA CHAVE ABAIXO DENTRO DAS ASPAS:
+        minha_chave = "AIzaSyDGK_W0Fgj7RsMTIcB9ABGos-PyuT_Dd7w" 
+        
+        # Se você ainda estiver usando Secrets, use a linha abaixo. 
+        # Se colou acima, não mude nada.
+        if minha_chave == "SUA_CHAVE_AQUI":
+            minha_chave = st.secrets["GEMINI_API_KEY"]
+            
+        genai.configure(api_key=minha_chave)
         return genai.GenerativeModel('gemini-1.5-flash')
-    except:
-        return None
+    except Exception as e:
+        # Se falhar, vamos retornar o erro real para você ver na tela
+        return f"ERRO_TECNICO: {str(e)}"
 
 def gerar_resumo_estatico_ia(df):
     try:
@@ -172,7 +180,7 @@ def agente_ia_treinado(model, df, pergunta):
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
-        return f"⚠️ Erro de sinal na IA: {str(e)}"
+        return f"⚠️ Erro na resposta da IA: {str(e)}"
 
 # --- INTERFACE (LAYOUT MARCO ZERO v3.18) ---
 arquivo_upload = st.file_uploader("Upload", type=["xlsx"], label_visibility="collapsed", key="romaneio_upload")
@@ -255,10 +263,13 @@ if arquivo_upload:
     with tab3:
         p_ia = st.text_input("Dúvida logística:", key="p_ia_tab3")
         if st.button("🧠 CONSULTAR AGENTE IA", use_container_width=True, key="btn_ia_tab3"):
-            modelo = inicializar_ia()
-            if modelo:
+            res_inicial = inicializar_ia()
+            # Se for uma string, é um erro. Se for o objeto da IA, prossegue.
+            if isinstance(res_inicial, str):
+                st.error(f"Falha na conexão: {res_inicial}")
+            else:
+                modelo = res_inicial
                 with st.spinner("Analisando..."):
                     st.markdown(f'<div class="success-box">{agente_ia_treinado(modelo, df_completo, p_ia)}</div>', unsafe_allow_html=True)
-            else: st.error("API Key ausente.")
 else:
     st.info("📁 Aguardando romaneio.")
