@@ -348,6 +348,10 @@ def inicializar_ia() -> Optional[genai.Client]:
     """
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
+        
+        # DEBUG: Mostrar info da chave (sem expor a chave completa)
+        st.info(f"🔑 API Key detectada: {len(api_key)} caracteres, inicia com '{api_key[:10]}...'")
+        
         return genai.Client(api_key=api_key)
     except KeyError:
         st.error("""
