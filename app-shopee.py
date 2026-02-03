@@ -441,7 +441,7 @@ TERMOS ANULADORES: {', '.join(TERMOS_ANULADORES)}
 
         # Chamar a IA
         response = client.models.generate_content(
-            model='gemini-2.0-flash-exp',  # MELHORIA: Usar modelo mais rápido
+            model='gemini-1.5-flash',  # Modelo estável e rápido
             contents=prompt
         )
         
