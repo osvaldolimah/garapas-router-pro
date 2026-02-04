@@ -116,50 +116,106 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         if not encontrado: resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
     return resultados
 
-# --- [IMUTÁVEL] IA: MOTOR DE ANALISE (MODELO 2.5 PRESERVADO) ---
+# --- IA: MOTOR DE ANALISE (v3.18 - AGERUPAMENTO INTELIGENTE DE BAIRROS) ---
+
 def inicializar_ia():
-    try: return genai.Client(api_key=st.secrets["GEMINI_API_KEY"], http_options=HttpOptions(api_version='v1'))
+
+    try: return genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+
     except: return None
 
+
+
 def agente_ia_treinado(client, df, pergunta):
+
     match_gaiola = re.search(r'([A-Z][- ]?\d+)', pergunta.upper())
+
     contexto_matematico = ""
+
     paradas = "N/A"
+
     if match_gaiola:
+
         g_alvo = limpar_string(match_gaiola.group(1))
+
         df_target = pd.DataFrame()
+
         for col in df.columns:
+
             if df[col].astype(str).apply(limpar_string).eq(g_alvo).any():
+
                 df_target = df[df[col].astype(str).apply(limpar_string) == g_alvo].copy()
+
                 break
+
+        
+
         if not df_target.empty:
+
             col_end_idx, col_bairro_idx = None, None
+
             for i, col_name in enumerate(df.columns):
+
                 c_name = str(col_name).upper()
+
                 if any(t in c_name for t in ['ADDRESS', 'ENDERE', 'LOGRA', 'RUA']): col_end_idx = i
+
                 if any(t in c_name for t in ['NEIGHBORHOOD', 'BAIRRO', 'SETOR']): col_bairro_idx = i
+
+            
+
             if col_end_idx is None: col_end_idx = 0
+
             df_target['BASE_STOP'] = df_target.iloc[:, col_end_idx].apply(extrair_base_endereco)
+
             paradas = df_target['BASE_STOP'].nunique()
+
+            
+
             lista_bairros = []
+
             if col_bairro_idx is not None:
+
                 lista_bairros = df_target.iloc[:, col_bairro_idx].dropna().astype(str).apply(remover_acentos).unique().tolist()
+
+            
+
             contexto_matematico = f"""
+
             DADOS REAIS DA GAIOLA {g_alvo}:
+
             - Pacotes: {len(df_target)}
+
             - Paradas: {paradas}
+
             - Lista Bruta de Bairros (limpar typos): {', '.join(lista_bairros) if lista_bairros else 'N/A'}
+
             """
+
+
+
     prompt_base = f"""Você é o Waze Humano. 
+
     INSTRUÇÕES DE INTELIGÊNCIA:
+
     1. Se a lista de bairros contiver typos (ex: MOMTESE vs MONTESE), você deve fundi-los e informar apenas o bairro correto.
+
     2. Nunca liste o mesmo bairro várias vezes com grafias diferentes.
+
     3. Trate 'Gaiola', 'Planilha' e 'Rota' como sinônimos.
-    4. Mantenha a contagem exata de {paradas if match_gaiola and not df_target.empty else 'N/A'} paradas informada pelo sistema.
+
+    4. Mantenha a contagem exata de {paradas} paradas informada pelo sistema.
+
     
+
     {contexto_matematico if contexto_matematico else 'Resumo: ' + df.head(15).to_string()}
+
     """
+
+    
+
     response = client.models.generate_content(model='gemini-1.5-flash', contents=f"{prompt_base}\nPergunta: {pergunta}")
+
     return response.text
 
 # --- [NOVA ABA] FUNÇÕES CIRCUIT PRO (ISOLADAS) ---
