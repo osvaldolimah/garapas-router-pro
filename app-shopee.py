@@ -159,7 +159,7 @@ def agente_ia_treinado(client, df, pergunta):
     
     {contexto_matematico if contexto_matematico else 'Resumo: ' + df.head(15).to_string()}
     """
-    response = client.models.generate_content(model='gemini-2.5-flash', contents=f"{prompt_base}\nPergunta: {pergunta}")
+    response = client.models.generate_content(model='gemini-1.5-flash', contents=f"{prompt_base}\nPergunta: {pergunta}")
     return response.text
 
 # --- [NOVA ABA] FUNÇÕES CIRCUIT PRO (ISOLADAS) ---
