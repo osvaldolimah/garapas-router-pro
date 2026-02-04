@@ -54,8 +54,9 @@ if 'modo_atual' not in st.session_state: st.session_state.modo_atual = 'unica'
 if 'resultado_multiplas' not in st.session_state: st.session_state.resultado_multiplas = None
 if 'df_cache' not in st.session_state: st.session_state.df_cache = None
 if 'planilhas_sessao' not in st.session_state: st.session_state.planilhas_sessao = {}
+if 'resumo_ia' not in st.session_state: st.session_state.resumo_ia = None
 
-# --- [IMUTÁVEL] FUNÇÕES AUXILIARES (LOGICA MARCO ZERO) ---
+# --- [IMUTÁVEL] FUNÇÕES AUXILIARES MARCO ZERO ---
 @st.cache_data
 def remover_acentos(texto: str) -> str:
     return "".join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn').upper()
@@ -116,109 +117,46 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         if not encontrado: resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
     return resultados
 
-# --- IA: MOTOR DE ANALISE (v3.18 - AGERUPAMENTO INTELIGENTE DE BAIRROS) ---
-
+# --- IA: MOTOR DE ANALISE (MARCO ZERO v3.18) ---
 def inicializar_ia():
-
     try: return genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
-
     except: return None
 
-
+def gerar_resumo_estatico_ia(df):
+    try:
+        col_g = next((i for i, c in enumerate(df.columns) if any(t in str(c).upper() for t in ['GAIOLA', 'LETRA', 'CANISTER'])), 0)
+        col_e = next((i for i, c in enumerate(df.columns) if any(t in str(c).upper() for t in ['ADDRESS', 'ENDERE', 'RUA'])), 0)
+        temp = df.copy()
+        temp['B_STOP'] = temp.iloc[:, col_e].apply(extrair_base_endereco)
+        resumo = temp.groupby(temp.columns[col_g]).agg(Pacotes=('B_STOP', 'count'), Paradas=('B_STOP', 'nunique')).reset_index()
+        texto = "TABELA GERAL:\n"
+        for _, row in resumo.iterrows():
+            texto += f"- Gaiola {row[0]}: {row['Pacotes']} pacotes, {row['Paradas']} paradas.\n"
+        return texto
+    except: return "Erro no resumo."
 
 def agente_ia_treinado(client, df, pergunta):
+    try:
+        if st.session_state.resumo_ia is None: st.session_state.resumo_ia = gerar_resumo_estatico_ia(df)
+        contexto_b = ""
+        match = re.search(r'([A-Z][- ]?\d+)', pergunta.upper())
+        if match:
+            g_alvo = limpar_string(match.group(1))
+            col_g = next((i for i, c in enumerate(df.columns) if any(t in str(c).upper() for t in ['GAIOLA', 'LETRA'])), 0)
+            col_b = next((i for i, c in enumerate(df.columns) if any(t in str(c).upper() for t in ['BAIRRO', 'NEIGHBORHOOD'])), None)
+            df_target = df[df.iloc[:, col_g].astype(str).apply(limpar_string) == g_alvo]
+            if not df_target.empty and col_b is not None:
+                bairros = df_target.iloc[:, col_b].dropna().astype(str).apply(remover_acentos).unique().tolist()
+                contexto_b = f"BAIRROS DA {g_alvo}: {', '.join(bairros)}."
 
-    match_gaiola = re.search(r'([A-Z][- ]?\d+)', pergunta.upper())
+        prompt = f"""Você é o Waze Humano. Use estes dados:\n{st.session_state.resumo_ia}\n{contexto_b}
+        REGRAS: 1. Compare quem tem mais/menos paradas usando a tabela. 2. Una bairros parecidos (ex: Momtese). 3. Seja curto."""
+        response = client.models.generate_content(model='gemini-1.5-flash', contents=f"{prompt}\nPergunta: {pergunta}")
+        return response.text
+    except Exception as e:
+        return f"⚠️ Erro de sinal na IA: {str(e)}"
 
-    contexto_matematico = ""
-
-    paradas = "N/A"
-
-    if match_gaiola:
-
-        g_alvo = limpar_string(match_gaiola.group(1))
-
-        df_target = pd.DataFrame()
-
-        for col in df.columns:
-
-            if df[col].astype(str).apply(limpar_string).eq(g_alvo).any():
-
-                df_target = df[df[col].astype(str).apply(limpar_string) == g_alvo].copy()
-
-                break
-
-        
-
-        if not df_target.empty:
-
-            col_end_idx, col_bairro_idx = None, None
-
-            for i, col_name in enumerate(df.columns):
-
-                c_name = str(col_name).upper()
-
-                if any(t in c_name for t in ['ADDRESS', 'ENDERE', 'LOGRA', 'RUA']): col_end_idx = i
-
-                if any(t in c_name for t in ['NEIGHBORHOOD', 'BAIRRO', 'SETOR']): col_bairro_idx = i
-
-            
-
-            if col_end_idx is None: col_end_idx = 0
-
-            df_target['BASE_STOP'] = df_target.iloc[:, col_end_idx].apply(extrair_base_endereco)
-
-            paradas = df_target['BASE_STOP'].nunique()
-
-            
-
-            lista_bairros = []
-
-            if col_bairro_idx is not None:
-
-                lista_bairros = df_target.iloc[:, col_bairro_idx].dropna().astype(str).apply(remover_acentos).unique().tolist()
-
-            
-
-            contexto_matematico = f"""
-
-            DADOS REAIS DA GAIOLA {g_alvo}:
-
-            - Pacotes: {len(df_target)}
-
-            - Paradas: {paradas}
-
-            - Lista Bruta de Bairros (limpar typos): {', '.join(lista_bairros) if lista_bairros else 'N/A'}
-
-            """
-
-
-
-    prompt_base = f"""Você é o Waze Humano. 
-
-    INSTRUÇÕES DE INTELIGÊNCIA:
-
-    1. Se a lista de bairros contiver typos (ex: MOMTESE vs MONTESE), você deve fundi-los e informar apenas o bairro correto.
-
-    2. Nunca liste o mesmo bairro várias vezes com grafias diferentes.
-
-    3. Trate 'Gaiola', 'Planilha' e 'Rota' como sinônimos.
-
-    4. Mantenha a contagem exata de {paradas} paradas informada pelo sistema.
-
-    
-
-    {contexto_matematico if contexto_matematico else 'Resumo: ' + df.head(15).to_string()}
-
-    """
-
-    
-
-    response = client.models.generate_content(model='gemini-1.5-flash', contents=f"{prompt_base}\nPergunta: {pergunta}")
-
-    return response.text
-
-# --- [NOVA ABA] FUNÇÕES CIRCUIT PRO (ISOLADAS) ---
+# --- [NOVA FUNÇÃO] EXCLUSIVA ABA CIRCUIT PRO (ISOLADA) ---
 def extrair_chave_circuit_pro(endereco):
     partes = str(endereco).split(',')
     if len(partes) >= 2:
@@ -226,28 +164,40 @@ def extrair_chave_circuit_pro(endereco):
     return str(endereco).strip().upper()
 
 def gerar_planilha_otimizada_circuit(df):
-    col_end = next((c for c in df.columns if any(t in str(c).upper() for t in ['ADDRESS', 'ENDERE'])), None)
+    col_end = next((c for c in df.columns if any(t in str(c).upper() for t in ['ADDRESS', 'ENDERE', 'DESTINATION'])), None)
     col_seq = next((c for c in df.columns if 'SEQUENCE' in str(c).upper()), None)
+    
     if not col_end or not col_seq: return None
+    
     df_temp = df.copy()
     df_temp['CHAVE_END'] = df_temp[col_end].apply(extrair_chave_circuit_pro)
+    
     agg_dict = {col: 'first' for col in df_temp.columns if col not in ['CHAVE_END', col_seq]}
     def unir_seqs(x): return ', '.join(map(str, sorted(x.unique())))
+    
     df_final = df_temp.groupby('CHAVE_END').agg({**agg_dict, col_seq: unir_seqs}).reset_index()
-    df_final['SortKey'] = df_final[col_seq].apply(lambda x: int(str(x).split(',')[0]))
-    return df_final.sort_values('SortKey').drop(columns=['CHAVE_END', 'SortKey'])
+    
+    # Tenta ordenar se a coluna for numérica
+    try:
+        df_final['SortKey'] = df_final[col_seq].apply(lambda x: int(str(x).split(',')[0]))
+        return df_final.sort_values('SortKey').drop(columns=['CHAVE_END', 'SortKey'])
+    except:
+        return df_final.drop(columns=['CHAVE_END'])
 
-# --- INTERFACE (TABS) ---
+# --- INTERFACE TABS ---
 tab1, tab2, tab3, tab4 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "🤖 Agente IA", "⚡ Circuit Pro"])
 
-with tab1:
+with tab1: # MARCO ZERO
     up_padrao = st.file_uploader("Upload Romaneio Geral", type=["xlsx"], key="up_padrao")
     if up_padrao:
-        if st.session_state.df_cache is None: st.session_state.df_cache = pd.read_excel(up_padrao)
+        if st.session_state.df_cache is None: 
+            st.session_state.df_cache = pd.read_excel(up_padrao)
+            st.session_state.resumo_ia = gerar_resumo_estatico_ia(st.session_state.df_cache)
+
         df_completo = st.session_state.df_cache
         xl = pd.ExcelFile(up_padrao)
         g_unica = st.text_input("Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
-        if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1"):
+        if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1", use_container_width=True):
             st.session_state.modo_atual = 'unica'
             target = limpar_string(g_unica); enc = False
             for aba in xl.sheet_names:
@@ -260,22 +210,25 @@ with tab1:
                         with pd.ExcelWriter(buf, engine='openpyxl') as w: res['dataframe'].to_excel(w, index=False)
                         st.session_state.dados_prontos = buf.getvalue(); st.session_state.df_visual_tab1 = res['dataframe']; st.session_state.metricas_tab1 = res; break
             if not enc: st.error("Não encontrada.")
+        
         if st.session_state.modo_atual == 'unica' and st.session_state.dados_prontos:
             m = st.session_state.metricas_tab1; c = st.columns(3)
             c[0].metric("📦 Pacotes", m["pacotes"]); c[1].metric("📍 Paradas", m["paradas"]); c[2].metric("🏪 Comércios", m["comercios"])
             st.dataframe(st.session_state.df_visual_tab1, use_container_width=True, hide_index=True)
             st.download_button("📥 BAIXAR PLANILHA", st.session_state.dados_prontos, f"Rota_{g_unica}.xlsx", use_container_width=True)
 
-with tab2:
-    if 'xl' in locals():
+with tab2: # MARCO ZERO
+    if 'up_padrao' in locals() and up_padrao:
         cod_m = st.text_area("Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_tab2")
         if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m_tab2", use_container_width=True):
             st.session_state.modo_atual = 'multiplas'
             lista = [c.strip().upper() for c in cod_m.split('\n') if c.strip()]
             if lista: st.session_state.resultado_multiplas = processar_multiplas_gaiolas(up_padrao, lista)
+        
         if st.session_state.modo_atual == 'multiplas' and st.session_state.resultado_multiplas:
             res = st.session_state.resultado_multiplas
             st.dataframe(pd.DataFrame([{'Gaiola': k, 'Status': '✅' if v['encontrado'] else '❌', 'Pacotes': v['pacotes'], 'Paradas': v['paradas']} for k, v in res.items()]), use_container_width=True, hide_index=True)
+            
             g_enc = [k for k, v in res.items() if v['encontrado']]
             if g_enc:
                 st.markdown("---"); st.markdown("##### ✅ Selecione para download individual:")
@@ -284,6 +237,7 @@ with tab2:
                 for i, g in enumerate(g_enc):
                     with cols[i % 3]:
                         if st.checkbox(f"**{g}**", key=f"chk_m_{g}"): selecionadas.append(g)
+                
                 if selecionadas and st.button("📥 PREPARAR ARQUIVOS CIRCUIT"):
                     st.session_state.planilhas_sessao = {}
                     for s in selecionadas:
@@ -298,6 +252,7 @@ with tab2:
                                     with pd.ExcelWriter(b_ind, engine='openpyxl') as w: r_ind['dataframe'].to_excel(w, index=False)
                                     st.session_state.planilhas_sessao[s] = b_ind.getvalue()
                                     break
+                
                 if st.session_state.planilhas_sessao:
                     st.markdown("##### 📥 Downloads Prontos:")
                     cols_dl = st.columns(3)
@@ -305,25 +260,33 @@ with tab2:
                         with cols_dl[idx % 3]:
                             st.download_button(label=f"📄 Rota {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
 
-with tab3:
+with tab3: # MARCO ZERO (IA)
     if 'df_completo' in locals():
         p_ia = st.text_input("Dúvida logística:", key="p_ia_tab3")
         if st.button("🧠 CONSULTAR AGENTE IA", use_container_width=True, key="btn_ia_tab3"):
             cli = inicializar_ia()
-            if cli:
-                with st.spinner("Analisando..."):
-                    st.markdown(f'<div class="success-box">{agente_ia_treinado(cli, df_completo, p_ia)}</div>', unsafe_allow_html=True)
+            if cli: st.markdown(f'<div class="success-box">{agente_ia_treinado(cli, df_completo, p_ia)}</div>', unsafe_allow_html=True)
+            else: st.error("API Key ausente.")
 
-with tab4:
-    st.markdown('<div class="success-box"><strong>⚡ Circuit Pro:</strong> Ferramenta isolada para unificar sequências e limpar paradas duplicadas.</div>', unsafe_allow_html=True)
-    up_circuit = st.file_uploader("Upload Romaneio Específico (Gaiola Única)", type=["xlsx"], key="up_circuit_pro")
+with tab4: # NOVA ABA ISOLADA
+    st.markdown('<div class="success-box"><strong>⚡ Circuit Pro:</strong> Ferramenta exclusiva para unificar sequências (Gaiola Única).</div>', unsafe_allow_html=True)
+    
+    # UPLOAD INDEPENDENTE
+    up_circuit = st.file_uploader("Upload Romaneio Específico", type=["xlsx"], key="up_circuit")
+    
     if up_circuit:
         df_c_bruto = pd.read_excel(up_circuit)
+        
         if st.button("🚀 GERAR PLANILHA DAS CASADINHAS", use_container_width=True):
-            res_otimizado = gerar_planilha_otimizada_circuit(df_c_bruto)
+            res_otimizado = gerar_planilha_otimizada_circuit_pro(df_c_bruto)
+            
             if res_otimizado is not None:
-                st.success(f"Otimizado: {len(df_c_bruto)} pacotes reduzidos para {len(res_otimizado)} paradas reais.")
+                st.success(f"✅ Otimização concluída! {len(df_c_bruto)} pacotes reduzidos para {len(res_otimizado)} paradas reais.")
+                
                 buf_c = io.BytesIO()
                 with pd.ExcelWriter(buf_c) as w: res_otimizado.to_excel(w, index=False)
+                
                 st.download_button("📥 BAIXAR PARA CIRCUIT", buf_c.getvalue(), "Circuit_Otimizado.xlsx", use_container_width=True)
                 st.dataframe(res_otimizado, use_container_width=True, hide_index=True)
+            else:
+                st.error("Erro: Colunas 'Address/Endereço' ou 'Sequence' não encontradas.")
