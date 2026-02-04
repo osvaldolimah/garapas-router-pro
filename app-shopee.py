@@ -34,9 +34,53 @@ st.markdown("""
     .stApp { background-color: var(--shopee-bg); font-family: 'Inter', sans-serif; }
     .header-container { text-align: center; padding: 20px 10px; background-color: white; border-bottom: 4px solid var(--shopee-orange); margin-bottom: 20px; border-radius: 0 0 20px 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
     .main-title { color: var(--shopee-orange) !important; font-size: clamp(1.0rem, 4vw, 1.4rem) !important; font-weight: 800 !important; margin: 0 !important; line-height: 1.2 !important; display: block !important; }
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; background-color: white; padding: 10px; border-radius: 15px; }
-    .stTabs [data-baseweb="tab"] { height: 50px; background-color: #f0f0f0; border-radius: 10px; padding: 0 24px; font-weight: 600; border: 2px solid transparent; }
-    .stTabs [aria-selected="true"] { background-color: var(--shopee-orange) !important; color: white !important; border-color: var(--shopee-orange); }
+    
+    /* TABS RESPONSIVAS - MOBILE FIRST */
+    .stTabs [data-baseweb="tab-list"] { 
+        gap: 4px;
+        background-color: white;
+        padding: 8px;
+        border-radius: 15px;
+        overflow-x: auto; /* Permite scroll horizontal se necessário */
+        -webkit-overflow-scrolling: touch; /* Scroll suave no iOS */
+        display: flex;
+        flex-wrap: nowrap; /* Não quebra linha */
+    }
+    
+    .stTabs [data-baseweb="tab"] { 
+        height: 45px;
+        background-color: #f0f0f0;
+        border-radius: 10px;
+        padding: 0 12px; /* Reduzido para mobile */
+        font-weight: 600;
+        border: 2px solid transparent;
+        white-space: nowrap; /* Texto não quebra */
+        font-size: 14px; /* Tamanho menor no mobile */
+        min-width: fit-content; /* Ajusta ao conteúdo */
+        flex-shrink: 0; /* Não encolhe */
+    }
+    
+    .stTabs [aria-selected="true"] { 
+        background-color: var(--shopee-orange) !important; 
+        color: white !important; 
+        border-color: var(--shopee-orange); 
+    }
+    
+    /* RESPONSIVIDADE PARA TELAS MAIORES */
+    @media (min-width: 768px) {
+        .stTabs [data-baseweb="tab-list"] { 
+            gap: 8px;
+            padding: 10px;
+            flex-wrap: wrap; /* Permite quebra em telas maiores se necessário */
+        }
+        
+        .stTabs [data-baseweb="tab"] { 
+            height: 50px;
+            padding: 0 24px;
+            font-size: 16px;
+        }
+    }
+    
     div.stButton > button { background-color: var(--shopee-orange) !important; color: white !important; font-size: 18px !important; font-weight: 700 !important; border-radius: 12px !important; width: 100% !important; height: 60px !important; border: none !important; }
     .info-box { background: #EFF6FF; border-left: 4px solid #2563EB; padding: 12px 16px; border-radius: 8px; margin: 10px 0; font-size: 0.9rem; color: #1E40AF; }
     .success-box { background: #F0FDF4; border-left: 4px solid #16A34A; padding: 12px 16px; border-radius: 8px; margin: 10px 0; color: #065F46; }
@@ -158,7 +202,7 @@ def gerar_planilha_otimizada_circuit_pro(df):
         return df_final.drop(columns=['CHAVE_END'])
 
 # --- INTERFACE TABS ---
-tab1, tab2, tab3 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "⚡ Circuit Pro"])
+tab1, tab2, tab3 = st.tabs(["🎯 Única", "📊 Lote", "⚡ Circuit"])
 
 with tab1: # MARCO ZERO
     st.markdown("##### 📥 Upload Romaneio Geral")
