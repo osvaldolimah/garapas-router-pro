@@ -26,7 +26,6 @@ TERMOS_COMERCIAIS = [
     'MERCANTIL', 'DEPARTAMENTO', 'VARIEDADES', 'PIZZARIA', 'CHURRASCARIA', 
     'CARNES', 'PEIXARIA', 'FRUTARIA', 'HORTIFRUTI', 'FLORICULTURA'
 ]
-
 TERMOS_ANULADORES = ['FRENTE', 'LADO', 'PROXIMO', 'VIZINHO', 'DEFRONTE', 'ATRAS', 'DEPOIS', 'PERTO', 'VIZINHA']
 
 # --- [IMUTÁVEL] SISTEMA DE DESIGN (MARCO ZERO) ---
@@ -41,8 +40,8 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] { height: 50px; background-color: #f0f0f0; border-radius: 10px; padding: 0 24px; font-weight: 600; border: 2px solid transparent; }
     .stTabs [aria-selected="true"] { background-color: var(--shopee-orange) !important; color: white !important; border-color: var(--shopee-orange); }
     div.stButton > button { background-color: var(--shopee-orange) !important; color: white !important; font-size: 18px !important; font-weight: 700 !important; border-radius: 12px !important; width: 100% !important; height: 60px !important; border: none !important; }
-    .info-box { background: #EFF6FF; border-left: 4px solid var(--info-blue); padding: 12px 16px; border-radius: 8px; margin: 10px 0; font-size: 0.9rem; color: #1E40AF; }
-    .success-box { background: #F0FDF4; border-left: 4px solid var(--success-green); padding: 12px 16px; border-radius: 8px; margin: 10px 0; color: #065F46; }
+    .info-box { background: #EFF6FF; border-left: 4px solid #2563EB; padding: 12px 16px; border-radius: 8px; margin: 10px 0; font-size: 0.9rem; color: #1E40AF; }
+    .success-box { background: #F0FDF4; border-left: 4px solid #16A34A; padding: 12px 16px; border-radius: 8px; margin: 10px 0; color: #065F46; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -56,7 +55,7 @@ if 'resultado_multiplas' not in st.session_state: st.session_state.resultado_mul
 if 'df_cache' not in st.session_state: st.session_state.df_cache = None
 if 'planilhas_sessao' not in st.session_state: st.session_state.planilhas_sessao = {}
 
-# --- [IMUTÁVEL] FUNÇÕES AUXILIARES MARCO ZERO ---
+# --- [IMUTÁVEL] FUNÇÕES AUXILIARES (LOGICA MARCO ZERO) ---
 @st.cache_data
 def remover_acentos(texto: str) -> str:
     return "".join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn').upper()
@@ -117,8 +116,9 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         if not encontrado: resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
     return resultados
 
+# --- [IMUTÁVEL] IA: MOTOR DE ANALISE (MODELO 2.5 PRESERVADO) ---
 def inicializar_ia():
-    try: return genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+    try: return genai.Client(api_key=st.secrets["GEMINI_API_KEY"], http_options=HttpOptions(api_version='v1'))
     except: return None
 
 def agente_ia_treinado(client, df, pergunta):
@@ -144,12 +144,25 @@ def agente_ia_treinado(client, df, pergunta):
             lista_bairros = []
             if col_bairro_idx is not None:
                 lista_bairros = df_target.iloc[:, col_bairro_idx].dropna().astype(str).apply(remover_acentos).unique().tolist()
-            contexto_matematico = f"GAIOLA {g_alvo}: {len(df_target)} pacotes, {paradas} paradas."
-    prompt_base = f"Você é o Waze Humano. {contexto_matematico}"
-    response = client.models.generate_content(model='gemini-1.5-flash', contents=f"{prompt_base}\nPergunta: {pergunta}")
+            contexto_matematico = f"""
+            DADOS REAIS DA GAIOLA {g_alvo}:
+            - Pacotes: {len(df_target)}
+            - Paradas: {paradas}
+            - Lista Bruta de Bairros (limpar typos): {', '.join(lista_bairros) if lista_bairros else 'N/A'}
+            """
+    prompt_base = f"""Você é o Waze Humano. 
+    INSTRUÇÕES DE INTELIGÊNCIA:
+    1. Se a lista de bairros contiver typos (ex: MOMTESE vs MONTESE), você deve fundi-los e informar apenas o bairro correto.
+    2. Nunca liste o mesmo bairro várias vezes com grafias diferentes.
+    3. Trate 'Gaiola', 'Planilha' e 'Rota' como sinônimos.
+    4. Mantenha a contagem exata de {paradas if match_gaiola and not df_target.empty else 'N/A'} paradas informada pelo sistema.
+    
+    {contexto_matematico if contexto_matematico else 'Resumo: ' + df.head(15).to_string()}
+    """
+    response = client.models.generate_content(model='gemini-2.5-flash', contents=f"{prompt_base}\nPergunta: {pergunta}")
     return response.text
 
-# --- [NOVO] FUNÇÕES ESPECÍFICAS PARA A ABA CIRCUIT PRO (ISOLADAS) ---
+# --- [NOVA ABA] FUNÇÕES CIRCUIT PRO (ISOLADAS) ---
 def extrair_chave_circuit_pro(endereco):
     partes = str(endereco).split(',')
     if len(partes) >= 2:
@@ -157,25 +170,14 @@ def extrair_chave_circuit_pro(endereco):
     return str(endereco).strip().upper()
 
 def gerar_planilha_otimizada_circuit(df):
-    """Lógica Sênior: Une sequências e remove linhas duplicadas de parada"""
-    # Identifica colunas
     col_end = next((c for c in df.columns if any(t in str(c).upper() for t in ['ADDRESS', 'ENDERE'])), None)
     col_seq = next((c for c in df.columns if 'SEQUENCE' in str(c).upper()), None)
     if not col_end or not col_seq: return None
-    
     df_temp = df.copy()
     df_temp['CHAVE_END'] = df_temp[col_end].apply(extrair_chave_circuit_pro)
-    
-    # Agrupamento destrutivo (Engenharia Sênior)
-    agregacoes = {col: 'first' for col in df_temp.columns if col not in ['CHAVE_END', col_seq]}
-    def unir_sequencias(x): return ', '.join(map(str, sorted(x.unique())))
-    
-    df_final = df_temp.groupby('CHAVE_END').agg({
-        **agregacoes,
-        col_seq: unir_sequencias
-    }).reset_index()
-    
-    # Reordenar pela primeira sequência para manter o fluxo
+    agg_dict = {col: 'first' for col in df_temp.columns if col not in ['CHAVE_END', col_seq]}
+    def unir_seqs(x): return ', '.join(map(str, sorted(x.unique())))
+    df_final = df_temp.groupby('CHAVE_END').agg({**agg_dict, col_seq: unir_seqs}).reset_index()
     df_final['SortKey'] = df_final[col_seq].apply(lambda x: int(str(x).split(',')[0]))
     return df_final.sort_values('SortKey').drop(columns=['CHAVE_END', 'SortKey'])
 
@@ -183,14 +185,13 @@ def gerar_planilha_otimizada_circuit(df):
 tab1, tab2, tab3, tab4 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "🤖 Agente IA", "⚡ Circuit Pro"])
 
 with tab1:
-    arquivo_upload = st.file_uploader("Upload Romaneio Geral", type=["xlsx"], key="up_padrao")
-    if arquivo_upload:
-        if st.session_state.df_cache is None: st.session_state.df_cache = pd.read_excel(arquivo_upload)
+    up_padrao = st.file_uploader("Upload Romaneio Geral", type=["xlsx"], key="up_padrao")
+    if up_padrao:
+        if st.session_state.df_cache is None: st.session_state.df_cache = pd.read_excel(up_padrao)
         df_completo = st.session_state.df_cache
-        xl = pd.ExcelFile(arquivo_upload)
-        st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Gerar rota detalhada.</div>', unsafe_allow_html=True)
+        xl = pd.ExcelFile(up_padrao)
         g_unica = st.text_input("Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
-        if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1", use_container_width=True):
+        if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1"):
             st.session_state.modo_atual = 'unica'
             target = limpar_string(g_unica); enc = False
             for aba in xl.sheet_names:
@@ -215,7 +216,7 @@ with tab2:
         if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m_tab2", use_container_width=True):
             st.session_state.modo_atual = 'multiplas'
             lista = [c.strip().upper() for c in cod_m.split('\n') if c.strip()]
-            if lista: st.session_state.resultado_multiplas = processar_multiplas_gaiolas(arquivo_upload, lista)
+            if lista: st.session_state.resultado_multiplas = processar_multiplas_gaiolas(up_padrao, lista)
         if st.session_state.modo_atual == 'multiplas' and st.session_state.resultado_multiplas:
             res = st.session_state.resultado_multiplas
             st.dataframe(pd.DataFrame([{'Gaiola': k, 'Status': '✅' if v['encontrado'] else '❌', 'Pacotes': v['pacotes'], 'Paradas': v['paradas']} for k, v in res.items()]), use_container_width=True, hide_index=True)
@@ -257,35 +258,16 @@ with tab3:
                 with st.spinner("Analisando..."):
                     st.markdown(f'<div class="success-box">{agente_ia_treinado(cli, df_completo, p_ia)}</div>', unsafe_allow_html=True)
 
-# --- [NOVA ABA] TOTALMENTE ISOLADA PARA O CIRCUIT PRO ---
 with tab4:
-    st.markdown('<div class="success-box"><strong>⚡ Circuit Pro:</strong> Ferramenta exclusiva para unificar sequências e limpar paradas duplicadas.</div>', unsafe_allow_html=True)
-    
-    # Campo de upload específico para esta aba
-    arquivo_circuit = st.file_uploader("Upload Romaneio Específico (Gaiola Única)", type=["xlsx"], key="up_circuit_pro")
-    
-    if arquivo_circuit:
-        df_circuit_bruto = pd.read_excel(arquivo_circuit)
-        
+    st.markdown('<div class="success-box"><strong>⚡ Circuit Pro:</strong> Ferramenta isolada para unificar sequências e limpar paradas duplicadas.</div>', unsafe_allow_html=True)
+    up_circuit = st.file_uploader("Upload Romaneio Específico (Gaiola Única)", type=["xlsx"], key="up_circuit_pro")
+    if up_circuit:
+        df_c_bruto = pd.read_excel(up_circuit)
         if st.button("🚀 GERAR PLANILHA DAS CASADINHAS", use_container_width=True):
-            with st.spinner("Fundindo endereços e limpando duplicadas..."):
-                res_otimizado = gerar_planilha_otimizada_circuit(df_circuit_bruto)
-                
-                if res_otimizado is not None:
-                    st.success(f"Otimização concluída! {len(df_circuit_bruto)} pacotes reduzidos para {len(res_otimizado)} paradas reais.")
-                    
-                    # Preparar download
-                    buf_c = io.BytesIO()
-                    with pd.ExcelWriter(buf_c) as w:
-                        res_otimizado.to_excel(w, index=False)
-                    
-                    st.download_button(
-                        label="📥 BAIXAR PLANILHA PARA CIRCUIT",
-                        data=buf_c.getvalue(),
-                        file_name="Planilha_Circuit_Otimizada.xlsx",
-                        use_container_width=True
-                    )
-                    
-                    st.dataframe(res_otimizado, use_container_width=True, hide_index=True)
-                else:
-                    st.error("Erro: Colunas 'Destination Address' ou 'Sequence' não encontradas no arquivo.")
+            res_otimizado = gerar_planilha_otimizada_circuit(df_c_bruto)
+            if res_otimizado is not None:
+                st.success(f"Otimizado: {len(df_c_bruto)} pacotes reduzidos para {len(res_otimizado)} paradas reais.")
+                buf_c = io.BytesIO()
+                with pd.ExcelWriter(buf_c) as w: res_otimizado.to_excel(w, index=False)
+                st.download_button("📥 BAIXAR PARA CIRCUIT", buf_c.getvalue(), "Circuit_Otimizado.xlsx", use_container_width=True)
+                st.dataframe(res_otimizado, use_container_width=True, hide_index=True)
