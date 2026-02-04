@@ -4,8 +4,6 @@ import io
 import unicodedata
 import re
 from typing import List, Dict, Optional
-from google import genai
-from google.genai.types import HttpOptions
 
 # --- [IMUTÁVEL] CONFIGURAÇÃO DA PÁGINA (MARCO ZERO) ---
 st.set_page_config(
@@ -121,53 +119,7 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         if not encontrado: resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
     return resultados
 
-# --- [IMUTÁVEL] IA: MOTOR DE ANALISE (MARCO ZERO) ---
-def inicializar_ia():
-    try: return genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
-    except: return None
-
-def agente_ia_treinado(client, df, pergunta):
-    match_gaiola = re.search(r'([A-Z][- ]?\d+)', pergunta.upper())
-    contexto_matematico = ""
-    paradas = "N/A"
-    if match_gaiola:
-        g_alvo = limpar_string(match_gaiola.group(1))
-        df_target = pd.DataFrame()
-        for col in df.columns:
-            if df[col].astype(str).apply(limpar_string).eq(g_alvo).any():
-                df_target = df[df[col].astype(str).apply(limpar_string) == g_alvo].copy()
-                break
-        if not df_target.empty:
-            col_end_idx, col_bairro_idx = None, None
-            for i, col_name in enumerate(df.columns):
-                c_name = str(col_name).upper()
-                if any(t in c_name for t in ['ADDRESS', 'ENDERE', 'LOGRA', 'RUA']): col_end_idx = i
-                if any(t in c_name for t in ['NEIGHBORHOOD', 'BAIRRO', 'SETOR']): col_bairro_idx = i
-            if col_end_idx is None: col_end_idx = 0
-            df_target['BASE_STOP'] = df_target.iloc[:, col_end_idx].apply(extrair_base_endereco)
-            paradas = df_target['BASE_STOP'].nunique()
-            lista_bairros = []
-            if col_bairro_idx is not None:
-                lista_bairros = df_target.iloc[:, col_bairro_idx].dropna().astype(str).apply(remover_acentos).unique().tolist()
-            contexto_matematico = f"""
-            DADOS REAIS DA GAIOLA {g_alvo}:
-            - Pacotes: {len(df_target)}
-            - Paradas: {paradas}
-            - Lista Bruta de Bairros (limpar typos): {', '.join(lista_bairros) if lista_bairros else 'N/A'}
-            """
-    prompt_base = f"""Você é o Waze Humano. 
-    INSTRUÇÕES DE INTELIGÊNCIA:
-    1. Se a lista de bairros contiver typos (ex: MOMTESE vs MONTESE), você deve fundi-los e informar apenas o bairro correto.
-    2. Nunca liste o mesmo bairro várias vezes com grafias diferentes.
-    3. Trate 'Gaiola', 'Planilha' e 'Rota' como sinônimos.
-    4. Mantenha a contagem exata de {paradas if match_gaiola and not df_target.empty else 'N/A'} paradas informada pelo sistema.
-    
-    {contexto_matematico if contexto_matematico else 'Resumo: ' + df.head(15).to_string()}
-    """
-    response = client.models.generate_content(model='gemini-1.5-flash', contents=f"{prompt_base}\nPergunta: {pergunta}")
-    return response.text
-
-# --- [NOVO] FUNÇÕES ISOLADAS PARA A ABA 4 (CIRCUIT PRO) ---
+# --- [NOVO] FUNÇÕES ISOLADAS PARA A ABA CIRCUIT PRO ---
 def extrair_chave_circuit_pro(endereco):
     """Extrai Rua + Número para casar sequências"""
     partes = str(endereco).split(',')
@@ -200,7 +152,7 @@ def gerar_planilha_otimizada_circuit_pro(df):
         return df_final.drop(columns=['CHAVE_END'])
 
 # --- INTERFACE TABS ---
-tab1, tab2, tab3, tab4 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "🤖 Agente IA", "⚡ Circuit Pro"])
+tab1, tab2, tab3 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "⚡ Circuit Pro"])
 
 with tab1: # MARCO ZERO
     st.markdown("##### 📥 Upload Romaneio Geral")
@@ -279,21 +231,7 @@ with tab2: # MARCO ZERO
     else:
         st.info("Faça o upload do romaneio na Aba 1 para usar esta função.")
 
-with tab3: # MARCO ZERO (IA)
-    st.markdown("##### 📥 Upload (Mesmo da Aba 1)")
-    if 'df_completo' in locals():
-        st.markdown('<div class="info-box"><strong>🤖 Agente IA:</strong> Analise o romaneio completo.</div>', unsafe_allow_html=True)
-        p_ia = st.text_input("Dúvida logística:", key="p_ia_tab3")
-        if st.button("🧠 CONSULTAR AGENTE IA", use_container_width=True, key="btn_ia_tab3"):
-            cli = inicializar_ia()
-            if cli:
-                with st.spinner("Analisando..."):
-                    st.markdown(f'<div class="success-box">{agente_ia_treinado(cli, df_completo, p_ia)}</div>', unsafe_allow_html=True)
-            else: st.error("API Key ausente.")
-    else:
-        st.info("Faça o upload na Aba 1.")
-
-with tab4: # NOVA ABA ISOLADA
+with tab3: # NOVA ABA ISOLADA - CIRCUIT PRO
     st.markdown("##### 📥 Upload Específico")
     st.markdown('<div class="success-box"><strong>⚡ Circuit Pro:</strong> Ferramenta isolada. Carregue o arquivo da gaiola já filtrada.</div>', unsafe_allow_html=True)
     up_circuit = st.file_uploader("Upload Romaneio Específico", type=["xlsx"], key="up_circuit")
@@ -305,7 +243,7 @@ with tab4: # NOVA ABA ISOLADA
             if res_c is not None:
                 st.success(f"✅ Otimização concluída! {len(df_c)} pacotes reduzidos para {len(res_c)} paradas reais.")
                 buf_c = io.BytesIO()
-                with pd.ExcelWriter(buf_c) as w: res_c.to_excel(w, index=False)
+                with pd.ExcelWriter(buf_c, engine='openpyxl') as w: res_c.to_excel(w, index=False)
                 st.download_button("📥 BAIXAR PARA CIRCUIT", buf_c.getvalue(), "Circuit_Otimizado.xlsx", use_container_width=True)
                 st.dataframe(res_c, use_container_width=True, hide_index=True)
             else:
