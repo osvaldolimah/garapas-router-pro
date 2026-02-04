@@ -7,7 +7,7 @@ from typing import List, Dict, Optional
 from google import genai
 from google.genai.types import HttpOptions
 
-# --- [IMUTÁVEL] CONFIGURAÇÃO DA PÁGINA ---
+# --- [IMUTÁVEL] CONFIGURAÇÃO DA PÁGINA (MARCO ZERO) ---
 st.set_page_config(
     page_title="Filtro de Rotas e Paradas", 
     page_icon="🚚", 
@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- [IMUTÁVEL] CONSTANTES ---
+# --- [IMUTÁVEL] CONSTANTES (MARCO ZERO) ---
 TERMOS_COMERCIAIS = [
     'LOJA', 'MERCADO', 'MERCEARIA', 'FARMACIA', 'DROGARIA', 'SHOPPING', 
     'CLINICA', 'HOSPITAL', 'POSTO', 'OFICINA', 'RESTAURANTE', 'LANCHONETE', 
@@ -28,7 +28,7 @@ TERMOS_COMERCIAIS = [
 ]
 TERMOS_ANULADORES = ['FRENTE', 'LADO', 'PROXIMO', 'VIZINHO', 'DEFRONTE', 'ATRAS', 'DEPOIS', 'PERTO', 'VIZINHA']
 
-# --- [IMUTÁVEL] DESIGN ---
+# --- [IMUTÁVEL] SISTEMA DE DESIGN (MARCO ZERO) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap');
@@ -42,12 +42,17 @@ st.markdown("""
     div.stButton > button { background-color: var(--shopee-orange) !important; color: white !important; font-size: 18px !important; font-weight: 700 !important; border-radius: 12px !important; width: 100% !important; height: 60px !important; border: none !important; }
     .info-box { background: #EFF6FF; border-left: 4px solid #2563EB; padding: 12px 16px; border-radius: 8px; margin: 10px 0; font-size: 0.9rem; color: #1E40AF; }
     .success-box { background: #F0FDF4; border-left: 4px solid #16A34A; padding: 12px 16px; border-radius: 8px; margin: 10px 0; color: #065F46; }
+    
+    /* CSS ESPECÍFICO PARA O SEGUNDO UPLOAD (CIRCUIT) */
+    [data-testid="stFileUploader"] label[data-testid="stWidgetLabel"] {
+        display: none;
+    }
     </style>
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="header-container"><h1 class="main-title">Filtro de Rotas e Paradas</h1></div>', unsafe_allow_html=True)
 
-# --- SESSÃO ---
+# --- [IMUTÁVEL] INICIALIZAÇÃO DA SESSÃO ---
 if 'dados_prontos' not in st.session_state: st.session_state.dados_prontos = None
 if 'df_visual_tab1' not in st.session_state: st.session_state.df_visual_tab1 = None
 if 'modo_atual' not in st.session_state: st.session_state.modo_atual = 'unica'
@@ -55,7 +60,7 @@ if 'resultado_multiplas' not in st.session_state: st.session_state.resultado_mul
 if 'df_cache' not in st.session_state: st.session_state.df_cache = None
 if 'planilhas_sessao' not in st.session_state: st.session_state.planilhas_sessao = {}
 
-# --- FUNÇÕES AUXILIARES ---
+# --- [IMUTÁVEL] FUNÇÕES AUXILIARES MARCO ZERO ---
 @st.cache_data
 def remover_acentos(texto: str) -> str:
     return "".join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn').upper()
@@ -100,7 +105,7 @@ def processar_gaiola_unica(df_raw: pd.DataFrame, gaiola_alvo: str, col_gaiola_id
         saida['Gaiola'] = df_filt[col_gaiola_idx]; saida['Tipo'] = df_filt[col_end_idx].apply(identificar_comercio)
         saida['Endereco_Completo'] = df_filt[col_end_idx].astype(str) + ", Fortaleza - CE"
         return {'dataframe': saida, 'pacotes': len(saida), 'paradas': len(mapa_stops), 'comercios': len(saida[saida['Tipo'] == "🏪 Comércio"])}
-    except: return None
+    except Exception: return None
 
 def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dict[str, Dict]:
     resultados = {}
@@ -116,70 +121,95 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         if not encontrado: resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
     return resultados
 
-# --- IA: MOTOR CORRIGIDO (VISÃO TOTAL) ---
+# --- [IMUTÁVEL] IA: MOTOR DE ANALISE (MARCO ZERO) ---
 def inicializar_ia():
     try: return genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
     except: return None
 
 def agente_ia_treinado(client, df, pergunta):
-    # Lógica de Busca Filtrada (O Pulo do Gato)
     match_gaiola = re.search(r'([A-Z][- ]?\d+)', pergunta.upper())
-    contexto_dados = ""
-    
+    contexto_matematico = ""
+    paradas = "N/A"
     if match_gaiola:
         g_alvo = limpar_string(match_gaiola.group(1))
-        # Varre todas as colunas para achar a gaiola no arquivo INTEIRO
+        df_target = pd.DataFrame()
         for col in df.columns:
-            # Filtra o DataFrame para pegar APENAS as linhas da gaiola solicitada
             if df[col].astype(str).apply(limpar_string).eq(g_alvo).any():
                 df_target = df[df[col].astype(str).apply(limpar_string) == g_alvo].copy()
-                # Envia para a IA o recorte exato da gaiola
-                contexto_dados = f"DADOS COMPLETOS DA GAIOLA {g_alvo}:\n{df_target.to_string()}"
                 break
+        if not df_target.empty:
+            col_end_idx, col_bairro_idx = None, None
+            for i, col_name in enumerate(df.columns):
+                c_name = str(col_name).upper()
+                if any(t in c_name for t in ['ADDRESS', 'ENDERE', 'LOGRA', 'RUA']): col_end_idx = i
+                if any(t in c_name for t in ['NEIGHBORHOOD', 'BAIRRO', 'SETOR']): col_bairro_idx = i
+            if col_end_idx is None: col_end_idx = 0
+            df_target['BASE_STOP'] = df_target.iloc[:, col_end_idx].apply(extrair_base_endereco)
+            paradas = df_target['BASE_STOP'].nunique()
+            lista_bairros = []
+            if col_bairro_idx is not None:
+                lista_bairros = df_target.iloc[:, col_bairro_idx].dropna().astype(str).apply(remover_acentos).unique().tolist()
+            contexto_matematico = f"""
+            DADOS REAIS DA GAIOLA {g_alvo}:
+            - Pacotes: {len(df_target)}
+            - Paradas: {paradas}
+            - Lista Bruta de Bairros (limpar typos): {', '.join(lista_bairros) if lista_bairros else 'N/A'}
+            """
+    prompt_base = f"""Você é o Waze Humano. 
+    INSTRUÇÕES DE INTELIGÊNCIA:
+    1. Se a lista de bairros contiver typos (ex: MOMTESE vs MONTESE), você deve fundi-los e informar apenas o bairro correto.
+    2. Nunca liste o mesmo bairro várias vezes com grafias diferentes.
+    3. Trate 'Gaiola', 'Planilha' e 'Rota' como sinônimos.
+    4. Mantenha a contagem exata de {paradas if match_gaiola and not df_target.empty else 'N/A'} paradas informada pelo sistema.
     
-    if not contexto_dados:
-        # Se não achou gaiola específica, manda uma amostra maior
-        contexto_dados = f"AMOSTRA GERAL DO ROMANEIO:\n{df.head(200).to_string()}"
-
-    prompt = f"""Você é o Waze Humano. 
-    INSTRUÇÃO: Use os dados abaixo como verdade absoluta. Se a gaiola estiver listada, analise seus bairros e paradas.
-    {contexto_dados}
+    {contexto_matematico if contexto_matematico else 'Resumo: ' + df.head(15).to_string()}
     """
-    try:
-        # Usando o modelo estável 1.5-flash
-        response = client.models.generate_content(model='gemini-1.5-flash', contents=f"{prompt}\nPergunta: {pergunta}")
-        return response.text
-    except Exception as e: return f"Erro na IA: {e}"
+    response = client.models.generate_content(model='gemini-1.5-flash', contents=f"{prompt_base}\nPergunta: {pergunta}")
+    return response.text
 
-# --- CIRCUIT PRO (ISOLADO) ---
+# --- [NOVO] FUNÇÕES ISOLADAS PARA A ABA 4 (CIRCUIT PRO) ---
 def extrair_chave_circuit_pro(endereco):
+    """Extrai Rua + Número para casar sequências"""
     partes = str(endereco).split(',')
-    return f"{partes[0].strip()}, {partes[1].strip()}".upper() if len(partes) >= 2 else str(endereco).strip().upper()
+    if len(partes) >= 2:
+        return f"{partes[0].strip()}, {partes[1].strip()}".upper()
+    return str(endereco).strip().upper()
 
-def gerar_planilha_otimizada_circuit(df):
-    col_end = next((c for c in df.columns if any(t in str(c).upper() for t in ['ADDRESS', 'ENDERE'])), None)
+def gerar_planilha_otimizada_circuit_pro(df):
+    """Funde linhas de mesmo endereço e une sequências"""
+    # Identifica colunas dinamicamente
+    col_end = next((c for c in df.columns if any(t in str(c).upper() for t in ['ADDRESS', 'ENDERE', 'DESTINATION'])), None)
     col_seq = next((c for c in df.columns if 'SEQUENCE' in str(c).upper()), None)
+    
     if not col_end or not col_seq: return None
+    
     df_temp = df.copy()
     df_temp['CHAVE_END'] = df_temp[col_end].apply(extrair_chave_circuit_pro)
+    
+    # Agregação: Mantém a primeira linha, junta as sequências
     agg_dict = {col: 'first' for col in df_temp.columns if col not in ['CHAVE_END', col_seq]}
     def unir_seqs(x): return ', '.join(map(str, sorted(x.unique())))
+    
     df_final = df_temp.groupby('CHAVE_END').agg({**agg_dict, col_seq: unir_seqs}).reset_index()
-    try: df_final['SortKey'] = df_final[col_seq].apply(lambda x: int(str(x).split(',')[0]))
-    except: df_final['SortKey'] = 0
-    return df_final.sort_values('SortKey').drop(columns=['CHAVE_END', 'SortKey'])
+    
+    # Reordena numericamente pela primeira sequência
+    try:
+        df_final['SortKey'] = df_final[col_seq].apply(lambda x: int(str(x).split(',')[0]))
+        return df_final.sort_values('SortKey').drop(columns=['CHAVE_END', 'SortKey'])
+    except:
+        return df_final.drop(columns=['CHAVE_END'])
 
-# --- INTERFACE ---
-arquivo_upload = st.file_uploader("Upload", type=["xlsx"], label_visibility="collapsed", key="romaneio_upload")
+# --- INTERFACE TABS ---
+tab1, tab2, tab3, tab4 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "🤖 Agente IA", "⚡ Circuit Pro"])
 
-if arquivo_upload:
-    if st.session_state.df_cache is None: st.session_state.df_cache = pd.read_excel(arquivo_upload)
-    df_completo = st.session_state.df_cache
-    xl = pd.ExcelFile(arquivo_upload)
-
-    tab1, tab2, tab3, tab4 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "🤖 Agente IA", "⚡ Circuit Pro"])
-
-    with tab1: # MARCO ZERO
+with tab1: # MARCO ZERO
+    st.markdown("##### 📥 Upload Romaneio Geral")
+    up_padrao = st.file_uploader("Upload Romaneio Geral", type=["xlsx"], key="up_padrao", label_visibility="collapsed")
+    if up_padrao:
+        if st.session_state.df_cache is None: st.session_state.df_cache = pd.read_excel(up_padrao)
+        df_completo = st.session_state.df_cache
+        xl = pd.ExcelFile(up_padrao)
+        
         st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Gerar rota detalhada.</div>', unsafe_allow_html=True)
         g_unica = st.text_input("Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
         if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1", use_container_width=True):
@@ -202,13 +232,16 @@ if arquivo_upload:
             st.dataframe(st.session_state.df_visual_tab1, use_container_width=True, hide_index=True)
             st.download_button("📥 BAIXAR PLANILHA", st.session_state.dados_prontos, f"Rota_{g_unica}.xlsx", use_container_width=True)
 
-    with tab2: # MARCO ZERO
+with tab2: # MARCO ZERO
+    st.markdown("##### 📥 Upload (Mesmo da Aba 1)")
+    if 'up_padrao' in locals() and up_padrao:
+        st.markdown('<div class="info-box"><strong>💡 Modo Múltiplas Gaiolas:</strong> Resumo rápido.</div>', unsafe_allow_html=True)
         cod_m = st.text_area("Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_tab2")
         if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m_tab2", use_container_width=True):
             st.session_state.modo_atual = 'multiplas'
             lista = [c.strip().upper() for c in cod_m.split('\n') if c.strip()]
-            if lista: st.session_state.resultado_multiplas = processar_multiplas_gaiolas(arquivo_upload, lista)
-
+            if lista: st.session_state.resultado_multiplas = processar_multiplas_gaiolas(up_padrao, lista)
+        
         if st.session_state.modo_atual == 'multiplas' and st.session_state.resultado_multiplas:
             res = st.session_state.resultado_multiplas
             st.dataframe(pd.DataFrame([{'Gaiola': k, 'Status': '✅' if v['encontrado'] else '❌', 'Pacotes': v['pacotes'], 'Paradas': v['paradas']} for k, v in res.items()]), use_container_width=True, hide_index=True)
@@ -243,28 +276,37 @@ if arquivo_upload:
                     for idx, (nome, data) in enumerate(st.session_state.planilhas_sessao.items()):
                         with cols_dl[idx % 3]:
                             st.download_button(label=f"📄 Rota {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
+    else:
+        st.info("Faça o upload do romaneio na Aba 1 para usar esta função.")
 
-    with tab3: # IA CALIBRADA v3.36
+with tab3: # MARCO ZERO (IA)
+    st.markdown("##### 📥 Upload (Mesmo da Aba 1)")
+    if 'df_completo' in locals():
+        st.markdown('<div class="info-box"><strong>🤖 Agente IA:</strong> Analise o romaneio completo.</div>', unsafe_allow_html=True)
         p_ia = st.text_input("Dúvida logística:", key="p_ia_tab3")
         if st.button("🧠 CONSULTAR AGENTE IA", use_container_width=True, key="btn_ia_tab3"):
             cli = inicializar_ia()
             if cli:
-                with st.spinner("Analisando gaiolas e bairros..."):
+                with st.spinner("Analisando..."):
                     st.markdown(f'<div class="success-box">{agente_ia_treinado(cli, df_completo, p_ia)}</div>', unsafe_allow_html=True)
             else: st.error("API Key ausente.")
+    else:
+        st.info("Faça o upload na Aba 1.")
 
-    with tab4: # CIRCUIT PRO ISOLADO
-        st.markdown('<div class="success-box"><strong>⚡ Circuit Pro:</strong> Ferramenta isolada para unificar sequências.</div>', unsafe_allow_html=True)
-        up_circuit = st.file_uploader("Upload Romaneio Específico", type=["xlsx"], key="up_circuit")
-        if up_circuit:
-            df_c = pd.read_excel(up_circuit)
-            if st.button("🚀 GERAR PLANILHA DAS CASADINHAS", use_container_width=True):
-                res_c = gerar_planilha_otimizada_circuit(df_c)
-                if res_c is not None:
-                    st.success(f"✅ Otimização concluída! {len(df_c)} pacotes reduzidos para {len(res_c)} paradas reais.")
-                    buf_c = io.BytesIO()
-                    with pd.ExcelWriter(buf_c) as w: res_c.to_excel(w, index=False)
-                    st.download_button("📥 BAIXAR PARA CIRCUIT", buf_c.getvalue(), "Circuit_Otimizado.xlsx", use_container_width=True)
-                    st.dataframe(res_c, use_container_width=True, hide_index=True)
-else:
-    st.info("📁 Aguardando romaneio.")
+with tab4: # NOVA ABA ISOLADA
+    st.markdown("##### 📥 Upload Específico")
+    st.markdown('<div class="success-box"><strong>⚡ Circuit Pro:</strong> Ferramenta isolada. Carregue o arquivo da gaiola já filtrada.</div>', unsafe_allow_html=True)
+    up_circuit = st.file_uploader("Upload Romaneio Específico", type=["xlsx"], key="up_circuit")
+    
+    if up_circuit:
+        df_c = pd.read_excel(up_circuit)
+        if st.button("🚀 GERAR PLANILHA DAS CASADINHAS", use_container_width=True):
+            res_c = gerar_planilha_otimizada_circuit_pro(df_c)
+            if res_c is not None:
+                st.success(f"✅ Otimização concluída! {len(df_c)} pacotes reduzidos para {len(res_c)} paradas reais.")
+                buf_c = io.BytesIO()
+                with pd.ExcelWriter(buf_c) as w: res_c.to_excel(w, index=False)
+                st.download_button("📥 BAIXAR PARA CIRCUIT", buf_c.getvalue(), "Circuit_Otimizado.xlsx", use_container_width=True)
+                st.dataframe(res_c, use_container_width=True, hide_index=True)
+            else:
+                st.error("Erro: Colunas 'Address/Endereço' ou 'Sequence' não encontradas.")
