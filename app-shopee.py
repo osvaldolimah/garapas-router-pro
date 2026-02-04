@@ -103,21 +103,27 @@ def processar_gaiola_unica(df_raw: pd.DataFrame, gaiola_alvo: str, col_gaiola_id
         saida['Gaiola'] = df_filt[col_gaiola_idx]; saida['Tipo'] = df_filt[col_end_idx].apply(identificar_comercio)
         saida['Endereco_Completo'] = df_filt[col_end_idx].astype(str) + ", Fortaleza - CE"
         return {'dataframe': saida, 'pacotes': len(saida), 'paradas': len(mapa_stops), 'comercios': len(saida[saida['Tipo'] == "🏪 Comércio"])}
-    except Exception: return None
+    except Exception as e:
+        st.error(f"⚠️ Erro ao processar gaiola {gaiola_alvo}: {str(e)}")
+        return None
 
 def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dict[str, Dict]:
     resultados = {}
-    xl = pd.ExcelFile(arquivo_excel)
-    for gaiola in codigos_gaiola:
-        target_limpo = limpar_string(gaiola); encontrado = False
-        for aba in xl.sheet_names:
-            df_raw = pd.read_excel(xl, sheet_name=aba, header=None, engine='openpyxl')
-            col_gaiola_idx = next((col for col in df_raw.columns if df_raw[col].astype(str).apply(limpar_string).eq(target_limpo).any()), None)
-            if col_gaiola_idx is not None:
-                res = processar_gaiola_unica(df_raw, gaiola, col_gaiola_idx)
-                if res: resultados[gaiola] = {'pacotes': res['pacotes'], 'paradas': res['paradas'], 'comercios': res['comercios'], 'encontrado': True}; encontrado = True; break
-        if not encontrado: resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
-    return resultados
+    try:
+        xl = pd.ExcelFile(arquivo_excel)
+        for gaiola in codigos_gaiola:
+            target_limpo = limpar_string(gaiola); encontrado = False
+            for aba in xl.sheet_names:
+                df_raw = pd.read_excel(xl, sheet_name=aba, header=None, engine='openpyxl')
+                col_gaiola_idx = next((col for col in df_raw.columns if df_raw[col].astype(str).apply(limpar_string).eq(target_limpo).any()), None)
+                if col_gaiola_idx is not None:
+                    res = processar_gaiola_unica(df_raw, gaiola, col_gaiola_idx)
+                    if res: resultados[gaiola] = {'pacotes': res['pacotes'], 'paradas': res['paradas'], 'comercios': res['comercios'], 'encontrado': True}; encontrado = True; break
+            if not encontrado: resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
+        return resultados
+    except Exception as e:
+        st.error(f"⚠️ Erro ao processar múltiplas gaiolas: {str(e)}")
+        return {}
 
 # --- [NOVO] FUNÇÕES ISOLADAS PARA A ABA CIRCUIT PRO ---
 def extrair_chave_circuit_pro(endereco):
@@ -158,25 +164,35 @@ with tab1: # MARCO ZERO
     st.markdown("##### 📥 Upload Romaneio Geral")
     up_padrao = st.file_uploader("Upload Romaneio Geral", type=["xlsx"], key="up_padrao", label_visibility="collapsed")
     if up_padrao:
-        if st.session_state.df_cache is None: st.session_state.df_cache = pd.read_excel(up_padrao)
+        # MELHORIA #3: Loading state ao carregar DataFrame pela primeira vez
+        if st.session_state.df_cache is None:
+            with st.spinner("📊 Carregando romaneio..."):
+                st.session_state.df_cache = pd.read_excel(up_padrao)
+        
         df_completo = st.session_state.df_cache
         xl = pd.ExcelFile(up_padrao)
         
         st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Gerar rota detalhada.</div>', unsafe_allow_html=True)
         g_unica = st.text_input("Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
         if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1", use_container_width=True):
-            st.session_state.modo_atual = 'unica'
-            target = limpar_string(g_unica); enc = False
-            for aba in xl.sheet_names:
-                df_r = pd.read_excel(xl, sheet_name=aba, header=None, engine='openpyxl')
-                idx = next((c for c in df_r.columns if df_r[c].astype(str).apply(limpar_string).eq(target).any()), None)
-                if idx is not None:
-                    res = processar_gaiola_unica(df_r, g_unica, idx)
-                    if res:
-                        enc = True; buf = io.BytesIO()
-                        with pd.ExcelWriter(buf, engine='openpyxl') as w: res['dataframe'].to_excel(w, index=False)
-                        st.session_state.dados_prontos = buf.getvalue(); st.session_state.df_visual_tab1 = res['dataframe']; st.session_state.metricas_tab1 = res; break
-            if not enc: st.error("Não encontrada.")
+            if not g_unica:
+                st.warning("⚠️ Por favor, digite o código da gaiola.")
+            else:
+                st.session_state.modo_atual = 'unica'
+                target = limpar_string(g_unica); enc = False
+                
+                with st.spinner(f"⚙️ Processando gaiola {g_unica}..."):
+                    for aba in xl.sheet_names:
+                        df_r = pd.read_excel(xl, sheet_name=aba, header=None, engine='openpyxl')
+                        idx = next((c for c in df_r.columns if df_r[c].astype(str).apply(limpar_string).eq(target).any()), None)
+                        if idx is not None:
+                            res = processar_gaiola_unica(df_r, g_unica, idx)
+                            if res:
+                                enc = True; buf = io.BytesIO()
+                                with pd.ExcelWriter(buf, engine='openpyxl') as w: res['dataframe'].to_excel(w, index=False)
+                                st.session_state.dados_prontos = buf.getvalue(); st.session_state.df_visual_tab1 = res['dataframe']; st.session_state.metricas_tab1 = res; break
+                
+                if not enc: st.error(f"❌ Gaiola '{g_unica}' não encontrada.")
         
         if st.session_state.modo_atual == 'unica' and st.session_state.dados_prontos:
             m = st.session_state.metricas_tab1; c = st.columns(3)
@@ -186,13 +202,21 @@ with tab1: # MARCO ZERO
 
 with tab2: # MARCO ZERO
     st.markdown("##### 📥 Upload (Mesmo da Aba 1)")
-    if 'up_padrao' in locals() and up_padrao:
+    # MELHORIA #3: Usar session_state ao invés de locals() para evitar race condition
+    if st.session_state.df_cache is not None and 'up_padrao' in locals() and up_padrao:
+        xl = pd.ExcelFile(up_padrao)
         st.markdown('<div class="info-box"><strong>💡 Modo Múltiplas Gaiolas:</strong> Resumo rápido.</div>', unsafe_allow_html=True)
         cod_m = st.text_area("Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_tab2")
         if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m_tab2", use_container_width=True):
-            st.session_state.modo_atual = 'multiplas'
             lista = [c.strip().upper() for c in cod_m.split('\n') if c.strip()]
-            if lista: st.session_state.resultado_multiplas = processar_multiplas_gaiolas(up_padrao, lista)
+            
+            if not lista:
+                st.warning("⚠️ Por favor, digite pelo menos um código de gaiola.")
+            else:
+                st.session_state.modo_atual = 'multiplas'
+                
+                with st.spinner(f"⚙️ Processando {len(lista)} gaiola(s)..."):
+                    st.session_state.resultado_multiplas = processar_multiplas_gaiolas(up_padrao, lista)
         
         if st.session_state.modo_atual == 'multiplas' and st.session_state.resultado_multiplas:
             res = st.session_state.resultado_multiplas
