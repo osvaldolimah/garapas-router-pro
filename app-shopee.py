@@ -5,7 +5,7 @@ import unicodedata
 import re
 from typing import List, Dict, Optional
 
-# --- [IMUTÁVEL] CONFIGURAÇÃO DA PÁGINA (MARCO ZERO) ---
+# --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
     page_title="Filtro de Rotas e Paradas", 
     page_icon="🚚", 
@@ -13,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- [IMUTÁVEL] CONSTANTES (MARCO ZERO) ---
+# --- CONSTANTES ---
 TERMOS_COMERCIAIS = [
     'LOJA', 'MERCADO', 'MERCEARIA', 'FARMACIA', 'DROGARIA', 'SHOPPING', 
     'CLINICA', 'HOSPITAL', 'POSTO', 'OFICINA', 'RESTAURANTE', 'LANCHONETE', 
@@ -26,7 +26,7 @@ TERMOS_COMERCIAIS = [
 ]
 TERMOS_ANULADORES = ['FRENTE', 'LADO', 'PROXIMO', 'VIZINHO', 'DEFRONTE', 'ATRAS', 'DEPOIS', 'PERTO', 'VIZINHA']
 
-# --- [IMUTÁVEL] SISTEMA DE DESIGN (MARCO ZERO) ---
+# --- SISTEMA DE DESIGN (CSS) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap');
@@ -35,66 +35,32 @@ st.markdown("""
     .header-container { text-align: center; padding: 20px 10px; background-color: white; border-bottom: 4px solid var(--shopee-orange); margin-bottom: 20px; border-radius: 0 0 20px 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
     .main-title { color: var(--shopee-orange) !important; font-size: clamp(1.0rem, 4vw, 1.4rem) !important; font-weight: 800 !important; margin: 0 !important; line-height: 1.2 !important; display: block !important; }
     
-    /* TABS RESPONSIVAS - MOBILE FIRST */
+    /* TABS RESPONSIVAS */
     .stTabs [data-baseweb="tab-list"] { 
-        gap: 4px;
-        background-color: white;
-        padding: 8px;
-        border-radius: 15px;
-        overflow-x: auto; /* Permite scroll horizontal se necessário */
-        -webkit-overflow-scrolling: touch; /* Scroll suave no iOS */
-        display: flex;
-        flex-wrap: nowrap; /* Não quebra linha */
+        gap: 4px; background-color: white; padding: 8px; border-radius: 15px;
+        overflow-x: auto; -webkit-overflow-scrolling: touch; display: flex; flex-wrap: nowrap;
     }
-    
     .stTabs [data-baseweb="tab"] { 
-        height: 45px;
-        background-color: #f0f0f0;
-        border-radius: 10px;
-        padding: 0 12px; /* Reduzido para mobile */
-        font-weight: 600;
-        border: 2px solid transparent;
-        white-space: nowrap; /* Texto não quebra */
-        font-size: 14px; /* Tamanho menor no mobile */
-        min-width: fit-content; /* Ajusta ao conteúdo */
-        flex-shrink: 0; /* Não encolhe */
+        height: 45px; background-color: #f0f0f0; border-radius: 10px; padding: 0 12px;
+        font-weight: 600; border: 2px solid transparent; white-space: nowrap; font-size: 14px; min-width: fit-content; flex-shrink: 0;
     }
-    
     .stTabs [aria-selected="true"] { 
-        background-color: var(--shopee-orange) !important; 
-        color: white !important; 
-        border-color: var(--shopee-orange); 
+        background-color: var(--shopee-orange) !important; color: white !important; border-color: var(--shopee-orange); 
     }
-    
-    /* RESPONSIVIDADE PARA TELAS MAIORES */
     @media (min-width: 768px) {
-        .stTabs [data-baseweb="tab-list"] { 
-            gap: 8px;
-            padding: 10px;
-            flex-wrap: wrap; /* Permite quebra em telas maiores se necessário */
-        }
-        
-        .stTabs [data-baseweb="tab"] { 
-            height: 50px;
-            padding: 0 24px;
-            font-size: 16px;
-        }
+        .stTabs [data-baseweb="tab-list"] { gap: 8px; padding: 10px; flex-wrap: wrap; }
+        .stTabs [data-baseweb="tab"] { height: 50px; padding: 0 24px; font-size: 16px; }
     }
-    
     div.stButton > button { background-color: var(--shopee-orange) !important; color: white !important; font-size: 18px !important; font-weight: 700 !important; border-radius: 12px !important; width: 100% !important; height: 60px !important; border: none !important; }
     .info-box { background: #EFF6FF; border-left: 4px solid #2563EB; padding: 12px 16px; border-radius: 8px; margin: 10px 0; font-size: 0.9rem; color: #1E40AF; }
     .success-box { background: #F0FDF4; border-left: 4px solid #16A34A; padding: 12px 16px; border-radius: 8px; margin: 10px 0; color: #065F46; }
-    
-    /* CSS ESPECÍFICO PARA O SEGUNDO UPLOAD (CIRCUIT) */
-    [data-testid="stFileUploader"] label[data-testid="stWidgetLabel"] {
-        display: none;
-    }
+    [data-testid="stFileUploader"] label[data-testid="stWidgetLabel"] { display: none; }
     </style>
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="header-container"><h1 class="main-title">Filtro de Rotas e Paradas</h1></div>', unsafe_allow_html=True)
 
-# --- [IMUTÁVEL] INICIALIZAÇÃO DA SESSÃO ---
+# --- INICIALIZAÇÃO DA SESSÃO ---
 if 'dados_prontos' not in st.session_state: st.session_state.dados_prontos = None
 if 'df_visual_tab1' not in st.session_state: st.session_state.df_visual_tab1 = None
 if 'modo_atual' not in st.session_state: st.session_state.modo_atual = 'unica'
@@ -102,7 +68,7 @@ if 'resultado_multiplas' not in st.session_state: st.session_state.resultado_mul
 if 'df_cache' not in st.session_state: st.session_state.df_cache = None
 if 'planilhas_sessao' not in st.session_state: st.session_state.planilhas_sessao = {}
 
-# --- [IMUTÁVEL] FUNÇÕES AUXILIARES MARCO ZERO ---
+# --- FUNÇÕES AUXILIARES (GERAIS) ---
 @st.cache_data
 def remover_acentos(texto: str) -> str:
     return "".join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn').upper()
@@ -169,46 +135,83 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         st.error(f"⚠️ Erro ao processar múltiplas gaiolas: {str(e)}")
         return {}
 
-# --- [NOVO] FUNÇÕES ISOLADAS PARA A ABA CIRCUIT PRO ---
-def extrair_chave_circuit_pro(endereco):
-    """Extrai Rua + Número para casar sequências"""
-    partes = str(endereco).split(',')
-    if len(partes) >= 2:
-        return f"{partes[0].strip()}, {partes[1].strip()}".upper()
-    return str(endereco).strip().upper()
+# --- [ATUALIZADO] FUNÇÕES ISOLADAS PARA A ABA CIRCUIT PRO (MODO HÍBRIDO) ---
+def limpar_e_normalizar_endereco(endereco):
+    """Normalização para fallback quando não há GPS"""
+    if not isinstance(endereco, str):
+        return str(endereco)
+    texto = remover_acentos(endereco)
+    # Remove pontuação e espaços extras
+    texto = re.sub(r'[^\w\s]', ' ', texto)
+    texto = re.sub(r'\s+', ' ', texto).strip()
+    return texto
 
 def gerar_planilha_otimizada_circuit_pro(df):
-    """Funde linhas de mesmo endereço e une sequências"""
+    """
+    Agrupa paradas usando Estratégia Híbrida:
+    1. Coordenadas (Lat/Lon) - Alta precisão (5 casas decimais = ~1m)
+    2. Endereço Normalizado - Fallback se não houver GPS
+    """
     # Identifica colunas dinamicamente
     col_end = next((c for c in df.columns if any(t in str(c).upper() for t in ['ADDRESS', 'ENDERE', 'DESTINATION'])), None)
     col_seq = next((c for c in df.columns if 'SEQUENCE' in str(c).upper()), None)
     
+    # Identifica Lat/Lon
+    col_lat = next((c for c in df.columns if any(t in str(c).upper() for t in ['LATITUDE', 'LAT'])), None)
+    col_lon = next((c for c in df.columns if any(t in str(c).upper() for t in ['LONGITUDE', 'LON', 'LNG'])), None)
+
     if not col_end or not col_seq: return None
     
     df_temp = df.copy()
-    df_temp['CHAVE_END'] = df_temp[col_end].apply(extrair_chave_circuit_pro)
+
+    # Função interna para gerar a chave de agrupamento
+    def criar_chave_unica(row):
+        # PRIORIDADE 1: GEOLOCALIZAÇÃO
+        if col_lat and col_lon:
+            try:
+                lat = float(row[col_lat])
+                lon = float(row[col_lon])
+                # Verifica se é válido e não é zero absoluto (erro comum)
+                if pd.notna(lat) and pd.notna(lon) and abs(lat) > 0.00001:
+                    # Arredonda para 5 casas (~1.1 metros de precisão)
+                    # Isso agrupa mesma casa, mas separa vizinhos
+                    return f"GEO_{round(lat, 5)}_{round(lon, 5)}"
+            except (ValueError, TypeError):
+                pass # Falha silenciosa, tenta o texto
+
+        # PRIORIDADE 2: TEXTO (FALLBACK)
+        end_limpo = limpar_e_normalizar_endereco(row[col_end])
+        return f"TXT_{end_limpo}"
+
+    df_temp['UID_AGRUPAMENTO'] = df_temp.apply(criar_chave_unica, axis=1)
     
     # Agregação: Mantém a primeira linha, junta as sequências
-    agg_dict = {col: 'first' for col in df_temp.columns if col not in ['CHAVE_END', col_seq]}
-    def unir_seqs(x): return ', '.join(map(str, sorted(x.unique())))
+    agg_dict = {col: 'first' for col in df_temp.columns if col not in ['UID_AGRUPAMENTO', col_seq]}
     
-    df_final = df_temp.groupby('CHAVE_END').agg({**agg_dict, col_seq: unir_seqs}).reset_index()
+    def unir_seqs(x): 
+        # Remove duplicatas, ordena e junta
+        vals = sorted(list(set(x.astype(str))))
+        # Tenta ordenar numericamente se possível
+        try: vals.sort(key=int)
+        except: pass
+        return ', '.join(vals)
     
-    # Reordena numericamente pela primeira sequência
+    df_final = df_temp.groupby('UID_AGRUPAMENTO').agg({**agg_dict, col_seq: unir_seqs}).reset_index()
+    
+    # Reordena pela sequência inicial para manter a lógica da rota original
     try:
         df_final['SortKey'] = df_final[col_seq].apply(lambda x: int(str(x).split(',')[0]))
-        return df_final.sort_values('SortKey').drop(columns=['CHAVE_END', 'SortKey'])
+        return df_final.sort_values('SortKey').drop(columns=['UID_AGRUPAMENTO', 'SortKey'])
     except:
-        return df_final.drop(columns=['CHAVE_END'])
+        return df_final.drop(columns=['UID_AGRUPAMENTO'])
 
 # --- INTERFACE TABS ---
 tab1, tab2, tab3 = st.tabs(["🎯 Única", "📊 Lote", "⚡ Circuit"])
 
-with tab1: # MARCO ZERO
+with tab1:
     st.markdown("##### 📥 Upload Romaneio Geral")
     up_padrao = st.file_uploader("Upload Romaneio Geral", type=["xlsx"], key="up_padrao", label_visibility="collapsed")
     if up_padrao:
-        # MELHORIA #3: Loading state ao carregar DataFrame pela primeira vez
         if st.session_state.df_cache is None:
             with st.spinner("📊 Carregando romaneio..."):
                 st.session_state.df_cache = pd.read_excel(up_padrao)
@@ -244,28 +247,24 @@ with tab1: # MARCO ZERO
             st.dataframe(st.session_state.df_visual_tab1, use_container_width=True, hide_index=True)
             st.download_button("📥 BAIXAR PLANILHA", st.session_state.dados_prontos, f"Rota_{g_unica}.xlsx", use_container_width=True)
 
-with tab2: # MARCO ZERO
+with tab2:
     st.markdown("##### 📥 Upload (Mesmo da Aba 1)")
-    # MELHORIA #3: Usar session_state ao invés de locals() para evitar race condition
     if st.session_state.df_cache is not None and 'up_padrao' in locals() and up_padrao:
         xl = pd.ExcelFile(up_padrao)
         st.markdown('<div class="info-box"><strong>💡 Modo Múltiplas Gaiolas:</strong> Resumo rápido.</div>', unsafe_allow_html=True)
         cod_m = st.text_area("Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_tab2")
         if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m_tab2", use_container_width=True):
             lista = [c.strip().upper() for c in cod_m.split('\n') if c.strip()]
-            
             if not lista:
                 st.warning("⚠️ Por favor, digite pelo menos um código de gaiola.")
             else:
                 st.session_state.modo_atual = 'multiplas'
-                
                 with st.spinner(f"⚙️ Processando {len(lista)} gaiola(s)..."):
                     st.session_state.resultado_multiplas = processar_multiplas_gaiolas(up_padrao, lista)
         
         if st.session_state.modo_atual == 'multiplas' and st.session_state.resultado_multiplas:
             res = st.session_state.resultado_multiplas
             st.dataframe(pd.DataFrame([{'Gaiola': k, 'Status': '✅' if v['encontrado'] else '❌', 'Pacotes': v['pacotes'], 'Paradas': v['paradas']} for k, v in res.items()]), use_container_width=True, hide_index=True)
-            
             g_enc = [k for k, v in res.items() if v['encontrado']]
             if g_enc:
                 st.markdown("---"); st.markdown("##### ✅ Selecione para download individual:")
@@ -274,7 +273,6 @@ with tab2: # MARCO ZERO
                 for i, g in enumerate(g_enc):
                     with cols[i % 3]:
                         if st.checkbox(f"**{g}**", key=f"chk_m_{g}"): selecionadas.append(g)
-                
                 if selecionadas and st.button("📥 PREPARAR ARQUIVOS CIRCUIT"):
                     st.session_state.planilhas_sessao = {}
                     for s in selecionadas:
@@ -287,9 +285,7 @@ with tab2: # MARCO ZERO
                                 if r_ind:
                                     b_ind = io.BytesIO()
                                     with pd.ExcelWriter(b_ind, engine='openpyxl') as w: r_ind['dataframe'].to_excel(w, index=False)
-                                    st.session_state.planilhas_sessao[s] = b_ind.getvalue()
-                                    break
-                
+                                    st.session_state.planilhas_sessao[s] = b_ind.getvalue(); break
                 if st.session_state.planilhas_sessao:
                     st.markdown("##### 📥 Downloads Prontos:")
                     cols_dl = st.columns(3)
@@ -299,9 +295,10 @@ with tab2: # MARCO ZERO
     else:
         st.info("Faça o upload do romaneio na Aba 1 para usar esta função.")
 
-with tab3: # NOVA ABA ISOLADA - CIRCUIT PRO
+with tab3:
     st.markdown("##### 📥 Upload Específico")
     st.markdown('<div class="success-box"><strong>⚡ Circuit Pro:</strong> Ferramenta isolada. Carregue o arquivo da gaiola já filtrada.</div>', unsafe_allow_html=True)
+    st.info("ℹ️ Agora com detecção inteligente: Agrupa por GPS (Latitude/Longitude) se disponível, ou corrige erros de digitação no endereço.")
     up_circuit = st.file_uploader("Upload Romaneio Específico", type=["xlsx"], key="up_circuit")
     
     if up_circuit:
@@ -315,4 +312,4 @@ with tab3: # NOVA ABA ISOLADA - CIRCUIT PRO
                 st.download_button("📥 BAIXAR PARA CIRCUIT", buf_c.getvalue(), "Circuit_Otimizado.xlsx", use_container_width=True)
                 st.dataframe(res_c, use_container_width=True, hide_index=True)
             else:
-                st.error("Erro: Colunas 'Address/Endereço' ou 'Sequence' não encontradas.")
+                st.error("Erro: Colunas necessárias não encontradas. Verifique se o arquivo tem 'Address/Endereço' e 'Sequence' (e opcionalmente Latitude/Longitude).")
