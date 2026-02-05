@@ -4,10 +4,10 @@ import io
 import unicodedata
 import re
 import math
-import requests # NOVO: Para consultar o OpenStreetMap
+import requests 
 from typing import List, Dict, Optional
 
-# Tenta importar a lib de GPS. Se não tiver, avisa o usuário (Tratamento de Erro Senior)
+# Tenta importar a lib de GPS
 try:
     from streamlit_js_eval import get_geolocation
     GPS_AVAILABLE = True
@@ -231,27 +231,38 @@ def gerar_planilha_otimizada_circuit_pro(df):
         return df_final.sort_values('SortKey').drop(columns=['SortKey'])
     except: return df_final
 
-# --- [NOVO] FUNÇÃO PARA ABA 4 (OSM) ---
-def buscar_locais_osm(lat, lon, raio=1500): # 1.5km de raio
+# --- [CORRIGIDO] FUNÇÃO PARA ABA 4 (OSM: Nodes, Ways, Relations) ---
+def buscar_locais_osm(lat, lon, raio=1500): 
     try:
         overpass_url = "http://overpass-api.de/api/interpreter"
-        # Query: Busca nodes com amenity=restaurant OU amenity=fuel perto da lat/lon
+        # MUDANÇA: Usa 'nwr' (node, way, relation) para achar prédios e áreas, não só pontos
         overpass_query = f"""
-        [out:json];
+        [out:json][timeout:25];
         (
-          node["amenity"~"^(restaurant|fuel)$"](around:{raio},{lat},{lon});
+          nwr["amenity"~"^(restaurant|fuel)$"](around:{raio},{lat},{lon});
         );
-        out body;
+        out center;
         """
-        response = requests.get(overpass_url, params={'data': overpass_query}, timeout=10)
+        response = requests.get(overpass_url, params={'data': overpass_query}, timeout=25)
         if response.status_code == 200:
             data = response.json()
             locais = []
             for element in data.get('elements', []):
-                nome = element.get('tags', {}).get('name', 'Sem Nome')
-                tipo = element.get('tags', {}).get('amenity', 'Outro')
-                e_lat = element.get('lat')
-                e_lon = element.get('lon')
+                tags = element.get('tags', {})
+                nome = tags.get('name', 'Sem Nome')
+                tipo = tags.get('amenity', 'Outro')
+                
+                # Lógica Robusta: Tenta pegar Lat/Lon direto ou do 'center' (se for área)
+                e_lat, e_lon = None, None
+                if 'lat' in element:
+                    e_lat = element.get('lat')
+                    e_lon = element.get('lon')
+                elif 'center' in element:
+                    e_lat = element['center'].get('lat')
+                    e_lon = element['center'].get('lon')
+                
+                if e_lat is None or e_lon is None: continue
+
                 dist = calcular_distancia_gps(lat, lon, e_lat, e_lon)
                 
                 # Tradução e Ícone
@@ -268,7 +279,7 @@ def buscar_locais_osm(lat, lon, raio=1500): # 1.5km de raio
                     'lon': e_lon
                 })
             
-            # Ordena por proximidade e pega os top 5
+            # Ordena por proximidade
             locais.sort(key=lambda x: x['distancia'])
             return locais[:6] # Retorna top 6
         else:
@@ -277,7 +288,6 @@ def buscar_locais_osm(lat, lon, raio=1500): # 1.5km de raio
         return []
 
 # --- INTERFACE TABS ---
-# [ALTERADO] Adicionada a 4ª Aba
 tab1, tab2, tab3, tab4 = st.tabs(["🎯 Única", "📊 Lote", "⚡ Circuit", "📍 Pit Stop"])
 
 with tab1:
@@ -375,7 +385,6 @@ with tab3:
                 st.dataframe(res_c, use_container_width=True, hide_index=True)
             else: st.error("Erro: Colunas necessárias não encontradas (Endereço, Sequence).")
 
-# --- [NOVA] ABA 4: PIT STOP ---
 with tab4:
     st.markdown("##### 📍 Encontre Serviços Próximos (1.5km)")
     
@@ -384,7 +393,6 @@ with tab4:
     else:
         st.info("Clique no botão abaixo e permita o acesso à localização do navegador.")
         
-        # Botão que pega o GPS do navegador
         location = get_geolocation(component_key='get_geo')
 
         if location:
@@ -409,4 +417,4 @@ with tab4:
                     </div>
                     """, unsafe_allow_html=True)
             else:
-                st.warning("Nenhum posto ou restaurante encontrado num raio de 1.5km.")
+                st.warning("Nenhum posto ou restaurante encontrado num raio de 1.5km (Verifique se há locais cadastrados no OpenStreetMap).")
