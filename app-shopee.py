@@ -4,8 +4,27 @@ import io
 import unicodedata
 import re
 import math
-import requests 
+import requests
+import logging
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from typing import List, Dict, Optional
+
+# --- LOGGING ---
+logger = logging.getLogger("filtro_rotas")
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+
+# --- SESSÃO DE REQUESTS COM RETRY (HTTPS) ---
+SESSION = requests.Session()
+retries = Retry(total=3, backoff_factor=0.6, status_forcelist=[429, 500, 502, 503, 504])
+adapter = HTTPAdapter(max_retries=retries)
+SESSION.mount("https://", adapter)
+SESSION.mount("http://", adapter)  # mantém compatibilidade, mas preferimos HTTPS
 
 # Tenta importar a lib de GPS
 try:
@@ -16,24 +35,27 @@ except ImportError:
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
-    page_title="Filtro de Rotas e Paradas", 
-    page_icon="🚚", 
+    page_title="Filtro de Rotas e Paradas",
+    page_icon="🚚",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
 # --- CONSTANTES ---
 TERMOS_COMERCIAIS = [
-    'LOJA', 'MERCADO', 'MERCEARIA', 'FARMACIA', 'DROGARIA', 'SHOPPING', 
-    'CLINICA', 'HOSPITAL', 'POSTO', 'OFICINA', 'RESTAURANTE', 'LANCHONETE', 
-    'PADARIA', 'PANIFICADORA', 'ACADEMIA', 'ESCOLA', 'COLEGIO', 'FACULDADE', 
-    'IGREJA', 'TEMPLO', 'EMPRESA', 'LTDA', 'MEI', 'SALA', 'SALAO', 'BARBEARIA', 
-    'ESTACIONAMENTO', 'HOTEL', 'SUPERMERCADO', 'AMC', 'ATACADO', 'DISTRIBUIDORA', 
-    'AUTOPECAS', 'VIDRAÇARIA', 'LABORATORIO', 'CLUBE', 'ASSOCIACAO', 'BOUTIQUE', 
-    'MERCANTIL', 'DEPARTAMENTO', 'VARIEDADES', 'PIZZARIA', 'CHURRASCARIA', 
+    'LOJA', 'MERCADO', 'MERCEARIA', 'FARMACIA', 'DROGARIA', 'SHOPPING',
+    'CLINICA', 'HOSPITAL', 'POSTO', 'OFICINA', 'RESTAURANTE', 'LANCHONETE',
+    'PADARIA', 'PANIFICADORA', 'ACADEMIA', 'ESCOLA', 'COLEGIO', 'FACULDADE',
+    'IGREJA', 'TEMPLO', 'EMPRESA', 'LTDA', 'MEI', 'SALA', 'SALAO', 'BARBEARIA',
+    'ESTACIONAMENTO', 'HOTEL', 'SUPERMERCADO', 'AMC', 'ATACADO', 'DISTRIBUIDORA',
+    'AUTOPECAS', 'VIDRAÇARIA', 'LABORATORIO', 'CLUBE', 'ASSOCIACAO', 'BOUTIQUE',
+    'MERCANTIL', 'DEPARTAMENTO', 'VARIEDADES', 'PIZZARIA', 'CHURRASCARIA',
     'CARNES', 'PEIXARIA', 'FRUTARIA', 'HORTIFRUTI', 'FLORICULTURA'
 ]
 TERMOS_ANULADORES = ['FRENTE', 'LADO', 'PROXIMO', 'VIZINHO', 'DEFRONTE', 'ATRAS', 'DEPOIS', 'PERTO', 'VIZINHA']
+
+# Limite de upload (bytes)
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 
 # --- SISTEMA DE DESIGN (CSS) ---
 st.markdown("""
@@ -82,6 +104,7 @@ if 'modo_atual' not in st.session_state: st.session_state.modo_atual = 'unica'
 if 'resultado_multiplas' not in st.session_state: st.session_state.resultado_multiplas = None
 if 'df_cache' not in st.session_state: st.session_state.df_cache = None
 if 'planilhas_sessao' not in st.session_state: st.session_state.planilhas_sessao = {}
+if 'up_padrao_bytes' not in st.session_state: st.session_state.up_padrao_bytes = None
 
 # --- FUNÇÕES AUXILIARES (GERAIS) ---
 @st.cache_data
@@ -119,35 +142,69 @@ def processar_gaiola_unica(df_raw: pd.DataFrame, gaiola_alvo: str, col_gaiola_id
             for i, val in enumerate(linha):
                 if any(t in val for t in ['ENDERE', 'LOGRA', 'RUA', 'ADDRESS']):
                     col_end_idx = i; break
+            if col_end_idx is not None:
+                break
         if col_end_idx is None:
-            col_end_idx = df_filt.apply(lambda x: x.astype(str).map(len).max()).idxmax()
+            # heurística alternativa: coluna com maior comprimento médio
+            try:
+                col_end_idx = df_filt.apply(lambda x: x.astype(str).map(len).mean()).idxmax()
+            except Exception:
+                col_end_idx = df_filt.columns[0]
         df_filt['CHAVE_STOP'] = df_filt[col_end_idx].apply(extrair_base_endereco)
         mapa_stops = {end: i + 1 for i, end in enumerate(df_filt['CHAVE_STOP'].unique())}
         saida = pd.DataFrame()
         saida['Parada'] = df_filt['CHAVE_STOP'].map(mapa_stops).astype(str)
-        saida['Gaiola'] = df_filt[col_gaiola_idx]; saida['Tipo'] = df_filt[col_end_idx].apply(identificar_comercio)
+        saida['Gaiola'] = df_filt[col_gaiola_idx]
+        saida['Tipo'] = df_filt[col_end_idx].apply(identificar_comercio)
         saida['Endereco_Completo'] = df_filt[col_end_idx].astype(str) + ", Fortaleza - CE"
         return {'dataframe': saida, 'pacotes': len(saida), 'paradas': len(mapa_stops), 'comercios': len(saida[saida['Tipo'] == "🏪 Comércio"])}
     except Exception as e:
-        st.error(f"⚠️ Erro ao processar gaiola {gaiola_alvo}: {str(e)}")
+        logger.exception("Erro ao processar gaiola %s", gaiola_alvo)
+        st.error(f"⚠️ Erro ao processar gaiola {gaiola_alvo}. Ver logs para detalhes.")
         return None
 
-def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dict[str, Dict]:
+def carregar_abas_excel(arquivo_bytes: bytes) -> Dict[str, pd.DataFrame]:
+    """
+    Carrega todas as abas do Excel em memória e retorna um dict {sheet_name: DataFrame}.
+    """
+    try:
+        xl = pd.ExcelFile(io.BytesIO(arquivo_bytes), engine='openpyxl')
+        abas = {}
+        for sheet in xl.sheet_names:
+            try:
+                abas[sheet] = pd.read_excel(xl, sheet_name=sheet, header=None, engine='openpyxl')
+            except Exception:
+                # tenta leitura sem engine específico
+                abas[sheet] = pd.read_excel(io.BytesIO(arquivo_bytes), sheet_name=sheet, header=None)
+        return abas
+    except Exception as e:
+        logger.exception("Falha ao carregar abas do Excel")
+        raise
+
+def processar_multiplas_gaiolas(arquivo_bytes: bytes, codigos_gaiola: List[str]) -> Dict[str, Dict]:
     resultados = {}
     try:
-        xl = pd.ExcelFile(arquivo_excel)
+        abas = carregar_abas_excel(arquivo_bytes)
         for gaiola in codigos_gaiola:
-            target_limpo = limpar_string(gaiola); encontrado = False
-            for aba in xl.sheet_names:
-                df_raw = pd.read_excel(xl, sheet_name=aba, header=None, engine='openpyxl')
-                col_gaiola_idx = next((col for col in df_raw.columns if df_raw[col].astype(str).apply(limpar_string).eq(target_limpo).any()), None)
+            target_limpo = limpar_string(gaiola)
+            encontrado = False
+            for aba, df_raw in abas.items():
+                try:
+                    col_gaiola_idx = next((col for col in df_raw.columns if df_raw[col].astype(str).apply(limpar_string).eq(target_limpo).any()), None)
+                except Exception:
+                    col_gaiola_idx = None
                 if col_gaiola_idx is not None:
                     res = processar_gaiola_unica(df_raw, gaiola, col_gaiola_idx)
-                    if res: resultados[gaiola] = {'pacotes': res['pacotes'], 'paradas': res['paradas'], 'comercios': res['comercios'], 'encontrado': True}; encontrado = True; break
-            if not encontrado: resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
+                    if res:
+                        resultados[gaiola] = {'pacotes': res['pacotes'], 'paradas': res['paradas'], 'comercios': res['comercios'], 'encontrado': True}
+                        encontrado = True
+                        break
+            if not encontrado:
+                resultados[gaiola] = {'pacotes': 0, 'paradas': 0, 'comercios': 0, 'encontrado': False}
         return resultados
     except Exception as e:
-        st.error(f"⚠️ Erro ao processar múltiplas gaiolas: {str(e)}")
+        logger.exception("Erro ao processar múltiplas gaiolas")
+        st.error("⚠️ Erro ao processar múltiplas gaiolas. Ver logs para detalhes.")
         return {}
 
 # --- LÓGICA CIRCUIT PRO ---
@@ -170,7 +227,8 @@ def normalizar_nome_rua(endereco):
 def calcular_distancia_gps(lat1, lon1, lat2, lon2):
     try:
         lat1, lon1, lat2, lon2 = float(lat1), float(lon1), float(lat2), float(lon2)
-    except: return 999999
+    except Exception:
+        return 999999
     R = 6371000
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
@@ -209,7 +267,8 @@ def gerar_planilha_otimizada_circuit_pro(df):
     if col_lat and col_lon:
         df_temp['tmp_lat'] = pd.to_numeric(df_temp[col_lat], errors='coerce').fillna(0)
         df_temp['tmp_lon'] = pd.to_numeric(df_temp[col_lon], errors='coerce').fillna(0)
-    else: df_temp['tmp_lat'] = 0; df_temp['tmp_lon'] = 0
+    else:
+        df_temp['tmp_lat'] = 0; df_temp['tmp_lon'] = 0
     df_temp = df_temp.sort_values(by=['tmp_num', 'tmp_nome']).reset_index(drop=True)
     group_ids = [0] * len(df_temp); current_id = 0
     for i in range(1, len(df_temp)):
@@ -229,13 +288,13 @@ def gerar_planilha_otimizada_circuit_pro(df):
     try:
         df_final['SortKey'] = df_final[col_seq].apply(lambda x: int(str(x).split(',')[0]))
         return df_final.sort_values('SortKey').drop(columns=['SortKey'])
-    except: return df_final
+    except Exception:
+        return df_final
 
-# --- [CORRIGIDO] FUNÇÃO PARA ABA 4 (OSM: Nodes, Ways, Relations) ---
-def buscar_locais_osm(lat, lon, raio=1500): 
+# --- FUNÇÃO PARA OSM (USANDO HTTPS E SESSION COM RETRY) ---
+def buscar_locais_osm(lat, lon, raio=1500):
     try:
-        overpass_url = "http://overpass-api.de/api/interpreter"
-        # MUDANÇA: Usa 'nwr' (node, way, relation) para achar prédios e áreas, não só pontos
+        overpass_url = "https://overpass-api.de/api/interpreter"
         overpass_query = f"""
         [out:json][timeout:25];
         (
@@ -243,7 +302,7 @@ def buscar_locais_osm(lat, lon, raio=1500):
         );
         out center;
         """
-        response = requests.get(overpass_url, params={'data': overpass_query}, timeout=25)
+        response = SESSION.get(overpass_url, params={'data': overpass_query}, timeout=25)
         if response.status_code == 200:
             data = response.json()
             locais = []
@@ -251,25 +310,19 @@ def buscar_locais_osm(lat, lon, raio=1500):
                 tags = element.get('tags', {})
                 nome = tags.get('name', 'Sem Nome')
                 tipo = tags.get('amenity', 'Outro')
-                
-                # Lógica Robusta: Tenta pegar Lat/Lon direto ou do 'center' (se for área)
                 e_lat, e_lon = None, None
-                if 'lat' in element:
+                if 'lat' in element and 'lon' in element:
                     e_lat = element.get('lat')
                     e_lon = element.get('lon')
                 elif 'center' in element:
                     e_lat = element['center'].get('lat')
                     e_lon = element['center'].get('lon')
-                
-                if e_lat is None or e_lon is None: continue
-
+                if e_lat is None or e_lon is None:
+                    continue
                 dist = calcular_distancia_gps(lat, lon, e_lat, e_lon)
-                
-                # Tradução e Ícone
                 if tipo == 'fuel': tipo_fmt = "⛽ Posto"; icone = "⛽"
                 elif tipo == 'restaurant': tipo_fmt = "🍴 Restaurante"; icone = "🍴"
                 else: tipo_fmt = "📍 Local"; icone = "📍"
-                
                 locais.append({
                     'nome': nome,
                     'tipo': tipo_fmt,
@@ -278,13 +331,13 @@ def buscar_locais_osm(lat, lon, raio=1500):
                     'lat': e_lat,
                     'lon': e_lon
                 })
-            
-            # Ordena por proximidade
             locais.sort(key=lambda x: x['distancia'])
-            return locais[:6] # Retorna top 6
+            return locais[:6]
         else:
+            logger.warning("Overpass retornou status %s", response.status_code)
             return []
-    except Exception as e:
+    except Exception:
+        logger.exception("Erro ao consultar Overpass")
         return []
 
 # --- INTERFACE TABS ---
@@ -294,48 +347,84 @@ with tab1:
     st.markdown("##### 📥 Upload Romaneio Geral")
     up_padrao = st.file_uploader("Upload Romaneio Geral", type=["xlsx"], key="up_padrao", label_visibility="collapsed")
     if up_padrao:
-        if st.session_state.df_cache is None:
-            with st.spinner("📊 Carregando romaneio..."):
-                st.session_state.df_cache = pd.read_excel(up_padrao)
-        df_completo = st.session_state.df_cache
-        xl = pd.ExcelFile(up_padrao)
-        st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Gerar rota detalhada.</div>', unsafe_allow_html=True)
-        g_unica = st.text_input("Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
-        if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1", use_container_width=True):
-            if not g_unica: st.warning("⚠️ Por favor, digite o código da gaiola.")
+        try:
+            raw_bytes = up_padrao.read()
+            if len(raw_bytes) > MAX_UPLOAD_BYTES:
+                st.error(f"Arquivo muito grande. Limite {MAX_UPLOAD_BYTES // (1024*1024)} MB.")
             else:
-                st.session_state.modo_atual = 'unica'
-                target = limpar_string(g_unica); enc = False
-                with st.spinner(f"⚙️ Processando gaiola {g_unica}..."):
-                    for aba in xl.sheet_names:
-                        df_r = pd.read_excel(xl, sheet_name=aba, header=None, engine='openpyxl')
-                        idx = next((c for c in df_r.columns if df_r[c].astype(str).apply(limpar_string).eq(target).any()), None)
-                        if idx is not None:
-                            res = processar_gaiola_unica(df_r, g_unica, idx)
-                            if res:
-                                enc = True; buf = io.BytesIO()
-                                with pd.ExcelWriter(buf, engine='openpyxl') as w: res['dataframe'].to_excel(w, index=False)
-                                st.session_state.dados_prontos = buf.getvalue(); st.session_state.df_visual_tab1 = res['dataframe']; st.session_state.metricas_tab1 = res; break
-                if not enc: st.error(f"❌ Gaiola '{g_unica}' não encontrada.")
-        if st.session_state.modo_atual == 'unica' and st.session_state.dados_prontos:
-            m = st.session_state.metricas_tab1; c = st.columns(3)
-            c[0].metric("📦 Pacotes", m["pacotes"]); c[1].metric("📍 Paradas", m["paradas"]); c[2].metric("🏪 Comércios", m["comercios"])
-            st.dataframe(st.session_state.df_visual_tab1, use_container_width=True, hide_index=True)
-            st.download_button("📥 BAIXAR PLANILHA", st.session_state.dados_prontos, f"Rota_{g_unica}.xlsx", use_container_width=True)
+                # invalidar cache se arquivo mudou
+                if st.session_state.get('up_padrao_bytes') != raw_bytes:
+                    st.session_state.up_padrao_bytes = raw_bytes
+                    st.session_state.df_cache = None
+                if st.session_state.df_cache is None:
+                    with st.spinner("📊 Carregando romaneio..."):
+                        try:
+                            st.session_state.df_cache = pd.read_excel(io.BytesIO(raw_bytes), engine='openpyxl')
+                        except Exception:
+                            # fallback sem engine
+                            st.session_state.df_cache = pd.read_excel(io.BytesIO(raw_bytes))
+                df_completo = st.session_state.df_cache
+                try:
+                    xl = pd.ExcelFile(io.BytesIO(raw_bytes), engine='openpyxl')
+                except Exception:
+                    xl = pd.ExcelFile(io.BytesIO(raw_bytes))
+                st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Gerar rota detalhada.</div>', unsafe_allow_html=True)
+                g_unica = st.text_input("Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
+                if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1", use_container_width=True):
+                    if not g_unica:
+                        st.warning("⚠️ Por favor, digite o código da gaiola.")
+                    else:
+                        st.session_state.modo_atual = 'unica'
+                        target = limpar_string(g_unica); enc = False
+                        with st.spinner(f"⚙️ Processando gaiola {g_unica}..."):
+                            # iterar abas já carregadas (evita reabrir arquivo)
+                            try:
+                                abas = carregar_abas_excel(raw_bytes)
+                                for aba, df_r in abas.items():
+                                    idx = next((c for c in df_r.columns if df_r[c].astype(str).apply(limpar_string).eq(target).any()), None)
+                                    if idx is not None:
+                                        res = processar_gaiola_unica(df_r, g_unica, idx)
+                                        if res:
+                                            enc = True
+                                            buf = io.BytesIO()
+                                            with pd.ExcelWriter(buf, engine='openpyxl') as w:
+                                                res['dataframe'].to_excel(w, index=False)
+                                            st.session_state.dados_prontos = buf.getvalue()
+                                            st.session_state.df_visual_tab1 = res['dataframe']
+                                            st.session_state.metricas_tab1 = res
+                                            break
+                            except Exception:
+                                logger.exception("Erro ao processar gaiola única")
+                                st.error("Erro interno ao processar. Ver logs.")
+                        if not enc:
+                            st.error(f"❌ Gaiola '{g_unica}' não encontrada.")
+        except Exception:
+            logger.exception("Erro ao ler upload padrão")
+            st.error("Erro ao processar o arquivo enviado. Verifique o formato e tente novamente.")
+    if st.session_state.modo_atual == 'unica' and st.session_state.dados_prontos:
+        m = st.session_state.metricas_tab1; c = st.columns(3)
+        c[0].metric("📦 Pacotes", m["pacotes"]); c[1].metric("📍 Paradas", m["paradas"]); c[2].metric("🏪 Comércios", m["comercios"])
+        st.dataframe(st.session_state.df_visual_tab1, use_container_width=True, hide_index=True)
+        st.download_button("📥 BAIXAR PLANILHA", st.session_state.dados_prontos, f"Rota_{g_unica}.xlsx", use_container_width=True)
 
 with tab2:
     st.markdown("##### 📥 Upload (Mesmo da Aba 1)")
-    if st.session_state.df_cache is not None and 'up_padrao' in locals() and up_padrao:
-        xl = pd.ExcelFile(up_padrao)
+    if st.session_state.df_cache is not None and st.session_state.get('up_padrao_bytes') is not None:
+        raw_bytes = st.session_state.up_padrao_bytes
+        try:
+            xl = pd.ExcelFile(io.BytesIO(raw_bytes), engine='openpyxl')
+        except Exception:
+            xl = pd.ExcelFile(io.BytesIO(raw_bytes))
         st.markdown('<div class="info-box"><strong>💡 Modo Múltiplas Gaiolas:</strong> Resumo rápido.</div>', unsafe_allow_html=True)
         cod_m = st.text_area("Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_tab2")
         if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m_tab2", use_container_width=True):
             lista = [c.strip().upper() for c in cod_m.split('\n') if c.strip()]
-            if not lista: st.warning("⚠️ Por favor, digite pelo menos um código de gaiola.")
+            if not lista:
+                st.warning("⚠️ Por favor, digite pelo menos um código de gaiola.")
             else:
                 st.session_state.modo_atual = 'multiplas'
                 with st.spinner(f"⚙️ Processando {len(lista)} gaiola(s)..."):
-                    st.session_state.resultado_multiplas = processar_multiplas_gaiolas(up_padrao, lista)
+                    st.session_state.resultado_multiplas = processar_multiplas_gaiolas(raw_bytes, lista)
         if st.session_state.modo_atual == 'multiplas' and st.session_state.resultado_multiplas:
             res = st.session_state.resultado_multiplas
             st.dataframe(pd.DataFrame([{'Gaiola': k, 'Status': '✅' if v['encontrado'] else '❌', 'Pacotes': v['pacotes'], 'Paradas': v['paradas']} for k, v in res.items()]), use_container_width=True, hide_index=True)
@@ -349,24 +438,31 @@ with tab2:
                         if st.checkbox(f"**{g}**", key=f"chk_m_{g}"): selecionadas.append(g)
                 if selecionadas and st.button("📥 PREPARAR ARQUIVOS CIRCUIT"):
                     st.session_state.planilhas_sessao = {}
-                    for s in selecionadas:
-                        target_l = limpar_string(s)
-                        for aba in xl.sheet_names:
-                            df_r = pd.read_excel(xl, sheet_name=aba, header=None, engine='openpyxl')
-                            idx_g = next((c for c in df_r.columns if df_r[c].astype(str).apply(limpar_string).eq(target_l).any()), None)
-                            if idx_g is not None:
-                                r_ind = processar_gaiola_unica(df_r, s, idx_g)
-                                if r_ind:
-                                    b_ind = io.BytesIO()
-                                    with pd.ExcelWriter(b_ind, engine='openpyxl') as w: r_ind['dataframe'].to_excel(w, index=False)
-                                    st.session_state.planilhas_sessao[s] = b_ind.getvalue(); break
+                    try:
+                        abas = carregar_abas_excel(raw_bytes)
+                        for s in selecionadas:
+                            target_l = limpar_string(s)
+                            for aba, df_r in abas.items():
+                                idx_g = next((c for c in df_r.columns if df_r[c].astype(str).apply(limpar_string).eq(target_l).any()), None)
+                                if idx_g is not None:
+                                    r_ind = processar_gaiola_unica(df_r, s, idx_g)
+                                    if r_ind:
+                                        b_ind = io.BytesIO()
+                                        with pd.ExcelWriter(b_ind, engine='openpyxl') as w:
+                                            r_ind['dataframe'].to_excel(w, index=False)
+                                        st.session_state.planilhas_sessao[s] = b_ind.getvalue()
+                                        break
+                    except Exception:
+                        logger.exception("Erro ao preparar arquivos circuit para download")
+                        st.error("Erro ao preparar arquivos. Ver logs.")
                 if st.session_state.planilhas_sessao:
                     st.markdown("##### 📥 Downloads Prontos:")
                     cols_dl = st.columns(3)
                     for idx, (nome, data) in enumerate(st.session_state.planilhas_sessao.items()):
                         with cols_dl[idx % 3]:
                             st.download_button(label=f"📄 Rota {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
-    else: st.info("Faça o upload do romaneio na Aba 1 para usar esta função.")
+    else:
+        st.info("Faça o upload do romaneio na Aba 1 para usar esta função.")
 
 with tab3:
     st.markdown("##### 📥 Upload Específico")
@@ -374,16 +470,29 @@ with tab3:
     st.info("ℹ️ Critério Seguro: Agrupa apenas se (Números Iguais) e (GPS <= 10m OU Nomes Iguais).")
     up_circuit = st.file_uploader("Upload Romaneio Específico", type=["xlsx"], key="up_circuit")
     if up_circuit:
-        df_c = pd.read_excel(up_circuit)
-        if st.button("🚀 GERAR PLANILHA DAS CASADINHAS", use_container_width=True):
-            res_c = gerar_planilha_otimizada_circuit_pro(df_c)
-            if res_c is not None:
-                st.success(f"✅ Otimização concluída! {len(df_c)} pacotes reduzidos para {len(res_c)} paradas reais.")
-                buf_c = io.BytesIO()
-                with pd.ExcelWriter(buf_c, engine='openpyxl') as w: res_c.to_excel(w, index=False)
-                st.download_button("📥 BAIXAR PARA CIRCUIT", buf_c.getvalue(), "Circuit_Otimizado.xlsx", use_container_width=True)
-                st.dataframe(res_c, use_container_width=True, hide_index=True)
-            else: st.error("Erro: Colunas necessárias não encontradas (Endereço, Sequence).")
+        try:
+            raw_c = up_circuit.read()
+            if len(raw_c) > MAX_UPLOAD_BYTES:
+                st.error(f"Arquivo muito grande. Limite {MAX_UPLOAD_BYTES // (1024*1024)} MB.")
+            else:
+                try:
+                    df_c = pd.read_excel(io.BytesIO(raw_c), engine='openpyxl')
+                except Exception:
+                    df_c = pd.read_excel(io.BytesIO(raw_c))
+                if st.button("🚀 GERAR PLANILHA DAS CASADINHAS", use_container_width=True):
+                    res_c = gerar_planilha_otimizada_circuit_pro(df_c)
+                    if res_c is not None:
+                        st.success(f"✅ Otimização concluída! {len(df_c)} pacotes reduzidos para {len(res_c)} paradas reais.")
+                        buf_c = io.BytesIO()
+                        with pd.ExcelWriter(buf_c, engine='openpyxl') as w:
+                            res_c.to_excel(w, index=False)
+                        st.download_button("📥 BAIXAR PARA CIRCUIT", buf_c.getvalue(), "Circuit_Otimizado.xlsx", use_container_width=True)
+                        st.dataframe(res_c, use_container_width=True, hide_index=True)
+                    else:
+                        st.error("Erro: Colunas necessárias não encontradas (Endereço, Sequence).")
+        except Exception:
+            logger.exception("Erro ao processar upload Circuit")
+            st.error("Erro ao processar o arquivo enviado. Verifique o formato e tente novamente.")
 
 with tab4:
     st.markdown("##### 📍 Encontre Serviços Próximos (1.5km)")
