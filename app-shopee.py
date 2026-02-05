@@ -135,7 +135,7 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         st.error(f"⚠️ Erro ao processar múltiplas gaiolas: {str(e)}")
         return {}
 
-# --- [ATUALIZADO] FUNÇÕES ISOLADAS PARA A ABA CIRCUIT PRO (MODO HÍBRIDO) ---
+# --- [ATUALIZADO] FUNÇÕES ISOLADAS PARA A ABA CIRCUIT PRO (MODO HÍBRIDO + SELEÇÃO DE TEXTO) ---
 def limpar_e_normalizar_endereco(endereco):
     """Normalização para fallback quando não há GPS"""
     if not isinstance(endereco, str):
@@ -146,11 +146,21 @@ def limpar_e_normalizar_endereco(endereco):
     texto = re.sub(r'\s+', ' ', texto).strip()
     return texto
 
+def escolher_melhor_endereco(serie_enderecos):
+    """
+    Recebe uma lista de endereços agrupados e retorna o 'melhor'.
+    Critério: O texto mais longo geralmente contém menos abreviações.
+    Ex: 'Av. Gov. Raul' vs 'Avenida Governador Raul Barbosa' -> Vence o segundo.
+    """
+    candidatos = [str(x).strip() for x in serie_enderecos if pd.notna(x) and str(x).strip() != '']
+    if not candidatos:
+        return ""
+    # Retorna o candidato com maior comprimento
+    return max(candidatos, key=len)
+
 def gerar_planilha_otimizada_circuit_pro(df):
     """
-    Agrupa paradas usando Estratégia Híbrida:
-    1. Coordenadas (Lat/Lon) - Alta precisão (5 casas decimais = ~1m)
-    2. Endereço Normalizado - Fallback se não houver GPS
+    Agrupa paradas usando Estratégia Híbrida e seleciona o melhor descritivo de endereço.
     """
     # Identifica colunas dinamicamente
     col_end = next((c for c in df.columns if any(t in str(c).upper() for t in ['ADDRESS', 'ENDERE', 'DESTINATION'])), None)
@@ -171,13 +181,12 @@ def gerar_planilha_otimizada_circuit_pro(df):
             try:
                 lat = float(row[col_lat])
                 lon = float(row[col_lon])
-                # Verifica se é válido e não é zero absoluto (erro comum)
+                # Verifica se é válido e não é zero absoluto
                 if pd.notna(lat) and pd.notna(lon) and abs(lat) > 0.00001:
                     # Arredonda para 5 casas (~1.1 metros de precisão)
-                    # Isso agrupa mesma casa, mas separa vizinhos
                     return f"GEO_{round(lat, 5)}_{round(lon, 5)}"
             except (ValueError, TypeError):
-                pass # Falha silenciosa, tenta o texto
+                pass 
 
         # PRIORIDADE 2: TEXTO (FALLBACK)
         end_limpo = limpar_e_normalizar_endereco(row[col_end])
@@ -185,20 +194,23 @@ def gerar_planilha_otimizada_circuit_pro(df):
 
     df_temp['UID_AGRUPAMENTO'] = df_temp.apply(criar_chave_unica, axis=1)
     
-    # Agregação: Mantém a primeira linha, junta as sequências
-    agg_dict = {col: 'first' for col in df_temp.columns if col not in ['UID_AGRUPAMENTO', col_seq]}
+    # Agregação:
+    # 1. Cria dicionário padrão (pega o primeiro valor)
+    agg_dict = {col: 'first' for col in df_temp.columns if col not in ['UID_AGRUPAMENTO', col_seq, col_end]}
+    
+    # 2. Aplica a lógica de 'Melhor Endereço' especificamente na coluna de endereço
+    agg_dict[col_end] = escolher_melhor_endereco
     
     def unir_seqs(x): 
-        # Remove duplicatas, ordena e junta
         vals = sorted(list(set(x.astype(str))))
-        # Tenta ordenar numericamente se possível
         try: vals.sort(key=int)
         except: pass
         return ', '.join(vals)
     
+    # 3. O GroupBy aplica o dicionário de agregação customizado
     df_final = df_temp.groupby('UID_AGRUPAMENTO').agg({**agg_dict, col_seq: unir_seqs}).reset_index()
     
-    # Reordena pela sequência inicial para manter a lógica da rota original
+    # Reordena pela sequência inicial
     try:
         df_final['SortKey'] = df_final[col_seq].apply(lambda x: int(str(x).split(',')[0]))
         return df_final.sort_values('SortKey').drop(columns=['UID_AGRUPAMENTO', 'SortKey'])
@@ -298,7 +310,7 @@ with tab2:
 with tab3:
     st.markdown("##### 📥 Upload Específico")
     st.markdown('<div class="success-box"><strong>⚡ Circuit Pro:</strong> Ferramenta isolada. Carregue o arquivo da gaiola já filtrada.</div>', unsafe_allow_html=True)
-    st.info("ℹ️ Agora com detecção inteligente: Agrupa por GPS (Latitude/Longitude) se disponível, ou corrige erros de digitação no endereço.")
+    st.info("ℹ️ 1. Agrupa por GPS. 2. Seleciona o endereço mais completo (ex: troca 'Gov' por 'Governador').")
     up_circuit = st.file_uploader("Upload Romaneio Específico", type=["xlsx"], key="up_circuit")
     
     if up_circuit:
