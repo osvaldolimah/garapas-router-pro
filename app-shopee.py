@@ -135,7 +135,7 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         st.error(f"⚠️ Erro ao processar múltiplas gaiolas: {str(e)}")
         return {}
 
-# --- [NOVA LÓGICA] CIRCUIT PRO COM CORREÇÃO INTELIGENTE ---
+# --- [NOVA LÓGICA] CIRCUIT PRO COM CORREÇÃO INTELIGENTE E GPS PRECISO ---
 def limpar_e_normalizar_endereco(endereco):
     """Fallback para quando não tem GPS"""
     if not isinstance(endereco, str): return str(endereco)
@@ -163,13 +163,13 @@ def gerar_planilha_otimizada_circuit_pro(df):
     df_temp = df.copy()
 
     def criar_chave_unica(row):
-        # 1. TENTA AGRUPAR POR GEOLOCALIZAÇÃO (Margem de erro: ~11 metros)
+        # 1. TENTA AGRUPAR POR GEOLOCALIZAÇÃO (Margem de erro: ~1 metro)
         if col_lat and col_lon:
             try:
                 lat, lon = float(row[col_lat]), float(row[col_lon])
                 if pd.notna(lat) and pd.notna(lon) and abs(lat) > 0.00001:
-                    # 4 casas decimais = ~11m. Agrupa endereços iguais com pequeno drift de GPS.
-                    return f"GEO_{round(lat, 4)}_{round(lon, 4)}"
+                    # 5 casas decimais = ~1.1m. Alta precisão.
+                    return f"GEO_{round(lat, 5)}_{round(lon, 5)}"
             except: pass 
 
         # 2. FALLBACK: TEXTO NORMALIZADO
@@ -290,7 +290,7 @@ with tab2:
 with tab3:
     st.markdown("##### 📥 Upload Específico")
     st.markdown('<div class="success-box"><strong>⚡ Circuit Pro:</strong> Otimização de Paradas ("Casadinhas")</div>', unsafe_allow_html=True)
-    st.info("ℹ️ Funcionamento: 1. Agrupa endereços iguais (mesmo com leve desvio de GPS). 2. Corrige nomes (ex: troca 'Gov' por 'Governador').")
+    st.info("ℹ️ Funcionamento: 1. Agrupa endereços por GPS exato. 2. Corrige nomes (escolhe o mais completo).")
     up_circuit = st.file_uploader("Upload Romaneio Específico", type=["xlsx"], key="up_circuit")
     
     if up_circuit:
