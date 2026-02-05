@@ -4,3 +4,5 @@ openpyxl
 streamlit>=1.31.0
 setuptools
 altair==4.2.2
+requests
+streamlit-js-eval

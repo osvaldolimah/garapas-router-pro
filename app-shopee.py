@@ -4,7 +4,15 @@ import io
 import unicodedata
 import re
 import math
+import requests # NOVO: Para consultar o OpenStreetMap
 from typing import List, Dict, Optional
+
+# Tenta importar a lib de GPS. Se não tiver, avisa o usuário (Tratamento de Erro Senior)
+try:
+    from streamlit_js_eval import get_geolocation
+    GPS_AVAILABLE = True
+except ImportError:
+    GPS_AVAILABLE = False
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
@@ -56,6 +64,12 @@ st.markdown("""
     .info-box { background: #EFF6FF; border-left: 4px solid #2563EB; padding: 12px 16px; border-radius: 8px; margin: 10px 0; font-size: 0.9rem; color: #1E40AF; }
     .success-box { background: #F0FDF4; border-left: 4px solid #16A34A; padding: 12px 16px; border-radius: 8px; margin: 10px 0; color: #065F46; }
     [data-testid="stFileUploader"] label[data-testid="stWidgetLabel"] { display: none; }
+    
+    /* CARD ESTILO PIT STOP */
+    .pit-card { background: white; padding: 15px; border-radius: 10px; border-left: 5px solid #EE4D2D; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 10px; }
+    .pit-title { font-weight: 800; color: #333; font-size: 1.1rem; }
+    .pit-meta { color: #666; font-size: 0.9rem; }
+    .pit-link { text-decoration: none; color: #2563EB; font-weight: bold; font-size: 0.9rem; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -136,95 +150,49 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         st.error(f"⚠️ Erro ao processar múltiplas gaiolas: {str(e)}")
         return {}
 
-# --- [NOVA LÓGICA] CIRCUIT PRO COM TRAVA DE NÚMERO ---
+# --- LÓGICA CIRCUIT PRO ---
 def extrair_numero_correto(endereco):
-    """
-    CORREÇÃO PARA ERRO DE APARTAMENTO:
-    Prioriza o número que vem LOGO DEPOIS da rua (índice 1 no split por vírgula),
-    evitando pegar o número do apartamento no final da string.
-    """
     if not isinstance(endereco, str): return "SN"
-    
-    # Normaliza
     partes = endereco.split(',')
-    
-    # Se tem formato "Rua, Numero, ..." (pelo menos 2 partes)
     if len(partes) >= 2:
-        # Pega a segunda parte (índice 1) que deve ser o número do prédio
         candidato = partes[1].strip()
-        # Tenta extrair apenas dígitos desse candidato
         match = re.search(r'(\d+)', candidato)
-        if match:
-            return match.group(1)
-            
-    # Fallback: Se não achou na posição padrão, procura o primeiro número da string inteira
+        if match: return match.group(1)
     todos_numeros = re.findall(r'(\d+)', endereco)
-    if todos_numeros:
-        # Pega o PRIMEIRO número encontrado (geralmente é o da rua) e não o último
-        return todos_numeros[0]
-        
+    if todos_numeros: return todos_numeros[0]
     return "SN"
 
 def normalizar_nome_rua(endereco):
     if not isinstance(endereco, str): return ""
-    # Pega só a parte antes da primeira vírgula (Rua X)
     nome = endereco.split(',')[0]
     return limpar_string(remover_acentos(nome))
 
 def calcular_distancia_gps(lat1, lon1, lat2, lon2):
-    """Retorna distância em METROS usando Haversine"""
     try:
         lat1, lon1, lat2, lon2 = float(lat1), float(lon1), float(lat2), float(lon2)
-    except:
-        return 999999 # Se não tiver GPS válido, retorna longe
-        
-    R = 6371000 # Raio da Terra em metros
+    except: return 999999
+    R = 6371000
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lon2 - lon1)
-    
     a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2) * math.sin(dlambda/2)**2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-    
     return R * c
 
 def devem_agrupar(row1, row2):
-    """
-    Regras CLARAS de agrupamento (Solicitadas pelo Usuário):
-    1. Números DIFERENTES → NÃO AGRUPA (sempre!)
-    2. Números IGUAIS + Nome igual → AGRUPA
-    3. Números IGUAIS + GPS próximo → AGRUPA (mesmo com nomes diferentes)
-    """
-    # Dados Linha 1
-    num1 = row1['tmp_num']
-    nome1 = row1['tmp_nome']
+    num1 = row1['tmp_num']; nome1 = row1['tmp_nome']
     lat1, lon1 = row1.get('tmp_lat', 0), row1.get('tmp_lon', 0)
-    
-    # Dados Linha 2
-    num2 = row2['tmp_num']
-    nome2 = row2['tmp_nome']
+    num2 = row2['tmp_num']; nome2 = row2['tmp_nome']
     lat2, lon2 = row2.get('tmp_lat', 0), row2.get('tmp_lon', 0)
     
-    # REGRA PRIORITÁRIA: Números diferentes = NÃO AGRUPA
-    if num1 != num2:
-        return False # ❌ Casas diferentes
-        
-    # Se chegou aqui: números são IGUAIS
-    
-    # REGRA 1: Nome + Número iguais
-    if nome1 == nome2:
-        return True # ✅ AGRUPA
-        
-    # REGRA 2: Nomes diferentes, mas GPS próximo (<= 10m)
+    if num1 != num2: return False
+    if nome1 == nome2: return True
     if lat1 != 0 and lat2 != 0:
         dist = calcular_distancia_gps(lat1, lon1, lat2, lon2)
-        if dist <= 10:
-            return True # ✅ AGRUPA (erro de digitação no nome)
-            
-    return False # ❌ NÃO AGRUPA
+        if dist <= 10: return True
+    return False
 
 def escolher_melhor_endereco(serie_enderecos):
-    """Entre 'Av. Gov.' e 'Avenida Governador', escolhe o mais longo."""
     candidatos = [str(x).strip() for x in serie_enderecos if pd.notna(x) and str(x).strip() != '']
     if not candidatos: return ""
     return max(candidatos, key=len)
@@ -234,66 +202,83 @@ def gerar_planilha_otimizada_circuit_pro(df):
     col_seq = next((c for c in df.columns if 'SEQUENCE' in str(c).upper()), None)
     col_lat = next((c for c in df.columns if any(t in str(c).upper() for t in ['LATITUDE', 'LAT'])), None)
     col_lon = next((c for c in df.columns if any(t in str(c).upper() for t in ['LONGITUDE', 'LON', 'LNG'])), None)
-
     if not col_end or not col_seq: return None
-    
     df_temp = df.copy()
-
-    # 1. PREPARAR DADOS PARA COMPARAÇÃO
     df_temp['tmp_num'] = df_temp[col_end].apply(extrair_numero_correto)
     df_temp['tmp_nome'] = df_temp[col_end].apply(normalizar_nome_rua)
-    
     if col_lat and col_lon:
         df_temp['tmp_lat'] = pd.to_numeric(df_temp[col_lat], errors='coerce').fillna(0)
         df_temp['tmp_lon'] = pd.to_numeric(df_temp[col_lon], errors='coerce').fillna(0)
-    else:
-        df_temp['tmp_lat'] = 0
-        df_temp['tmp_lon'] = 0
-
-    # 2. ORDENAR (Crucial para o loop funcionar)
-    # Agrupa vizinhos potenciais: Primeiro pelo número, depois pelo nome
+    else: df_temp['tmp_lat'] = 0; df_temp['tmp_lon'] = 0
     df_temp = df_temp.sort_values(by=['tmp_num', 'tmp_nome']).reset_index(drop=True)
-    
-    # 3. APLICAR LÓGICA "DEVEM AGRUPAR" (Clusterização)
-    group_ids = [0] * len(df_temp)
-    current_id = 0
-    
+    group_ids = [0] * len(df_temp); current_id = 0
     for i in range(1, len(df_temp)):
-        prev_row = df_temp.iloc[i-1]
-        curr_row = df_temp.iloc[i]
-        
-        if devem_agrupar(prev_row, curr_row):
-            group_ids[i] = current_id # Mantém o ID (Agrupa)
-        else:
-            current_id += 1
-            group_ids[i] = current_id # Novo Grupo
-            
+        if devem_agrupar(df_temp.iloc[i-1], df_temp.iloc[i]): group_ids[i] = current_id
+        else: current_id += 1; group_ids[i] = current_id
     df_temp['CLUSTER_ID'] = group_ids
-    
-    # 4. AGREGAR DADOS
     agg_dict = {col: 'first' for col in df_temp.columns if col not in ['CLUSTER_ID', col_seq, col_end, 'tmp_num', 'tmp_nome', 'tmp_lat', 'tmp_lon']}
     agg_dict[col_end] = escolher_melhor_endereco 
-    
     def unir_seqs(x): 
-        vals = sorted(list(set(x.astype(str))))
+        vals = sorted(list(set(x.astype(str)))); 
         try: vals.sort(key=int)
         except: pass
         return ', '.join(vals)
-    
     df_final = df_temp.groupby('CLUSTER_ID').agg({**agg_dict, col_seq: unir_seqs}).reset_index()
-    
-    # Remove colunas temporárias
     cols_drop = [c for c in ['CLUSTER_ID', 'tmp_num', 'tmp_nome', 'tmp_lat', 'tmp_lon'] if c in df_final.columns]
     df_final = df_final.drop(columns=cols_drop)
-    
     try:
         df_final['SortKey'] = df_final[col_seq].apply(lambda x: int(str(x).split(',')[0]))
         return df_final.sort_values('SortKey').drop(columns=['SortKey'])
-    except:
-        return df_final
+    except: return df_final
+
+# --- [NOVO] FUNÇÃO PARA ABA 4 (OSM) ---
+def buscar_locais_osm(lat, lon, raio=1500): # 1.5km de raio
+    try:
+        overpass_url = "http://overpass-api.de/api/interpreter"
+        # Query: Busca nodes com amenity=restaurant OU amenity=fuel perto da lat/lon
+        overpass_query = f"""
+        [out:json];
+        (
+          node["amenity"~"^(restaurant|fuel)$"](around:{raio},{lat},{lon});
+        );
+        out body;
+        """
+        response = requests.get(overpass_url, params={'data': overpass_query}, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            locais = []
+            for element in data.get('elements', []):
+                nome = element.get('tags', {}).get('name', 'Sem Nome')
+                tipo = element.get('tags', {}).get('amenity', 'Outro')
+                e_lat = element.get('lat')
+                e_lon = element.get('lon')
+                dist = calcular_distancia_gps(lat, lon, e_lat, e_lon)
+                
+                # Tradução e Ícone
+                if tipo == 'fuel': tipo_fmt = "⛽ Posto"; icone = "⛽"
+                elif tipo == 'restaurant': tipo_fmt = "🍴 Restaurante"; icone = "🍴"
+                else: tipo_fmt = "📍 Local"; icone = "📍"
+                
+                locais.append({
+                    'nome': nome,
+                    'tipo': tipo_fmt,
+                    'icone': icone,
+                    'distancia': dist,
+                    'lat': e_lat,
+                    'lon': e_lon
+                })
+            
+            # Ordena por proximidade e pega os top 5
+            locais.sort(key=lambda x: x['distancia'])
+            return locais[:6] # Retorna top 6
+        else:
+            return []
+    except Exception as e:
+        return []
 
 # --- INTERFACE TABS ---
-tab1, tab2, tab3 = st.tabs(["🎯 Única", "📊 Lote", "⚡ Circuit"])
+# [ALTERADO] Adicionada a 4ª Aba
+tab1, tab2, tab3, tab4 = st.tabs(["🎯 Única", "📊 Lote", "⚡ Circuit", "📍 Pit Stop"])
 
 with tab1:
     st.markdown("##### 📥 Upload Romaneio Geral")
@@ -302,19 +287,15 @@ with tab1:
         if st.session_state.df_cache is None:
             with st.spinner("📊 Carregando romaneio..."):
                 st.session_state.df_cache = pd.read_excel(up_padrao)
-        
         df_completo = st.session_state.df_cache
         xl = pd.ExcelFile(up_padrao)
-        
         st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Gerar rota detalhada.</div>', unsafe_allow_html=True)
         g_unica = st.text_input("Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
         if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1", use_container_width=True):
-            if not g_unica:
-                st.warning("⚠️ Por favor, digite o código da gaiola.")
+            if not g_unica: st.warning("⚠️ Por favor, digite o código da gaiola.")
             else:
                 st.session_state.modo_atual = 'unica'
                 target = limpar_string(g_unica); enc = False
-                
                 with st.spinner(f"⚙️ Processando gaiola {g_unica}..."):
                     for aba in xl.sheet_names:
                         df_r = pd.read_excel(xl, sheet_name=aba, header=None, engine='openpyxl')
@@ -325,9 +306,7 @@ with tab1:
                                 enc = True; buf = io.BytesIO()
                                 with pd.ExcelWriter(buf, engine='openpyxl') as w: res['dataframe'].to_excel(w, index=False)
                                 st.session_state.dados_prontos = buf.getvalue(); st.session_state.df_visual_tab1 = res['dataframe']; st.session_state.metricas_tab1 = res; break
-                
                 if not enc: st.error(f"❌ Gaiola '{g_unica}' não encontrada.")
-        
         if st.session_state.modo_atual == 'unica' and st.session_state.dados_prontos:
             m = st.session_state.metricas_tab1; c = st.columns(3)
             c[0].metric("📦 Pacotes", m["pacotes"]); c[1].metric("📍 Paradas", m["paradas"]); c[2].metric("🏪 Comércios", m["comercios"])
@@ -342,13 +321,11 @@ with tab2:
         cod_m = st.text_area("Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_tab2")
         if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m_tab2", use_container_width=True):
             lista = [c.strip().upper() for c in cod_m.split('\n') if c.strip()]
-            if not lista:
-                st.warning("⚠️ Por favor, digite pelo menos um código de gaiola.")
+            if not lista: st.warning("⚠️ Por favor, digite pelo menos um código de gaiola.")
             else:
                 st.session_state.modo_atual = 'multiplas'
                 with st.spinner(f"⚙️ Processando {len(lista)} gaiola(s)..."):
                     st.session_state.resultado_multiplas = processar_multiplas_gaiolas(up_padrao, lista)
-        
         if st.session_state.modo_atual == 'multiplas' and st.session_state.resultado_multiplas:
             res = st.session_state.resultado_multiplas
             st.dataframe(pd.DataFrame([{'Gaiola': k, 'Status': '✅' if v['encontrado'] else '❌', 'Pacotes': v['pacotes'], 'Paradas': v['paradas']} for k, v in res.items()]), use_container_width=True, hide_index=True)
@@ -379,15 +356,13 @@ with tab2:
                     for idx, (nome, data) in enumerate(st.session_state.planilhas_sessao.items()):
                         with cols_dl[idx % 3]:
                             st.download_button(label=f"📄 Rota {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
-    else:
-        st.info("Faça o upload do romaneio na Aba 1 para usar esta função.")
+    else: st.info("Faça o upload do romaneio na Aba 1 para usar esta função.")
 
 with tab3:
     st.markdown("##### 📥 Upload Específico")
     st.markdown('<div class="success-box"><strong>⚡ Circuit Pro:</strong> Otimização de Paradas ("Casadinhas")</div>', unsafe_allow_html=True)
     st.info("ℹ️ Critério Seguro: Agrupa apenas se (Números Iguais) e (GPS <= 10m OU Nomes Iguais).")
     up_circuit = st.file_uploader("Upload Romaneio Específico", type=["xlsx"], key="up_circuit")
-    
     if up_circuit:
         df_c = pd.read_excel(up_circuit)
         if st.button("🚀 GERAR PLANILHA DAS CASADINHAS", use_container_width=True):
@@ -398,5 +373,40 @@ with tab3:
                 with pd.ExcelWriter(buf_c, engine='openpyxl') as w: res_c.to_excel(w, index=False)
                 st.download_button("📥 BAIXAR PARA CIRCUIT", buf_c.getvalue(), "Circuit_Otimizado.xlsx", use_container_width=True)
                 st.dataframe(res_c, use_container_width=True, hide_index=True)
+            else: st.error("Erro: Colunas necessárias não encontradas (Endereço, Sequence).")
+
+# --- [NOVA] ABA 4: PIT STOP ---
+with tab4:
+    st.markdown("##### 📍 Encontre Serviços Próximos (1.5km)")
+    
+    if not GPS_AVAILABLE:
+        st.error("⚠️ Biblioteca de GPS não encontrada. Adicione 'streamlit-js-eval' ao requirements.txt.")
+    else:
+        st.info("Clique no botão abaixo e permita o acesso à localização do navegador.")
+        
+        # Botão que pega o GPS do navegador
+        location = get_geolocation(component_key='get_geo')
+
+        if location:
+            lat = location['coords']['latitude']
+            lon = location['coords']['longitude']
+            st.success(f"📍 Localização encontrada! Buscando serviços...")
+            
+            with st.spinner("Consultando mapa..."):
+                locais_proximos = buscar_locais_osm(lat, lon)
+            
+            if locais_proximos:
+                st.markdown("### ⛽ Postos e 🍴 Restaurantes:")
+                for local in locais_proximos:
+                    dist_m = int(local['distancia'])
+                    link_maps = f"https://www.google.com/maps/search/?api=1&query={local['lat']},{local['lon']}"
+                    
+                    st.markdown(f"""
+                    <div class="pit-card">
+                        <div class="pit-title">{local['icone']} {local['nome']}</div>
+                        <div class="pit-meta">{local['tipo']} • a <strong>{dist_m} metros</strong></div>
+                        <a href="{link_maps}" target="_blank" class="pit-link">🗺️ Abrir no Maps</a>
+                    </div>
+                    """, unsafe_allow_html=True)
             else:
-                st.error("Erro: Colunas necessárias não encontradas (Endereço, Sequence).")
+                st.warning("Nenhum posto ou restaurante encontrado num raio de 1.5km.")
