@@ -135,7 +135,7 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         st.error(f"⚠️ Erro ao processar múltiplas gaiolas: {str(e)}")
         return {}
 
-# --- [NOVA LÓGICA] CIRCUIT PRO COM CORREÇÃO INTELIGENTE E GPS PRECISO ---
+# --- [NOVA LÓGICA] CIRCUIT PRO COM TRAVA DE NÚMERO ---
 def limpar_e_normalizar_endereco(endereco):
     """Fallback para quando não tem GPS"""
     if not isinstance(endereco, str): return str(endereco)
@@ -143,14 +143,34 @@ def limpar_e_normalizar_endereco(endereco):
     texto = re.sub(r'[^\w\s]', ' ', texto)
     return re.sub(r'\s+', ' ', texto).strip()
 
+def extrair_numero_endereco(endereco):
+    """
+    Extrai o número do endereço para evitar agrupar vizinhos com mesmo GPS.
+    Ex: 'Rua A, 123, Casa' -> '123'
+    """
+    if not isinstance(endereco, str): return "SN"
+    
+    # 1. Tenta pegar o último pedaço após vírgula (Padrão: Rua, Numero)
+    partes = endereco.split(',')
+    if len(partes) > 1:
+        # Tenta no último bloco
+        match = re.search(r'(\d+)', partes[-1])
+        if match: return match.group(1)
+        # Tenta no penúltimo (caso tenha complemento depois: Rua, 123, Casa)
+        match = re.search(r'(\d+)', partes[-2])
+        if match: return match.group(1)
+            
+    # 2. Varredura completa (pega o último número encontrado na string)
+    todos_numeros = re.findall(r'(\d+)', endereco)
+    if todos_numeros: return todos_numeros[-1]
+    
+    return "SN"
+
 def escolher_melhor_endereco(serie_enderecos):
-    """
-    CORRETOR AUTOMÁTICO:
-    Entre 'Av. Gov. Raul' e 'Avenida Governador Raul Barbosa', escolhe o mais longo.
-    """
+    """Entre 'Av. Gov.' e 'Avenida Governador', escolhe o mais longo."""
     candidatos = [str(x).strip() for x in serie_enderecos if pd.notna(x) and str(x).strip() != '']
     if not candidatos: return ""
-    return max(candidatos, key=len) # O mais longo geralmente é o mais correto/completo
+    return max(candidatos, key=len)
 
 def gerar_planilha_otimizada_circuit_pro(df):
     col_end = next((c for c in df.columns if any(t in str(c).upper() for t in ['ADDRESS', 'ENDERE', 'DESTINATION'])), None)
@@ -163,24 +183,30 @@ def gerar_planilha_otimizada_circuit_pro(df):
     df_temp = df.copy()
 
     def criar_chave_unica(row):
-        # 1. TENTA AGRUPAR POR GEOLOCALIZAÇÃO (Margem de erro: ~1 metro)
+        # Passo 1: Extrair o NÚMERO (A âncora do agrupamento)
+        num = extrair_numero_endereco(row[col_end])
+        
+        # Passo 2: Tenta GPS (5 casas = ~1m)
+        geo_key = ""
         if col_lat and col_lon:
             try:
                 lat, lon = float(row[col_lat]), float(row[col_lon])
                 if pd.notna(lat) and pd.notna(lon) and abs(lat) > 0.00001:
-                    # 5 casas decimais = ~1.1m. Alta precisão.
-                    return f"GEO_{round(lat, 5)}_{round(lon, 5)}"
+                    geo_key = f"GEO_{round(lat, 5)}_{round(lon, 5)}"
             except: pass 
 
-        # 2. FALLBACK: TEXTO NORMALIZADO
-        return f"TXT_{limpar_e_normalizar_endereco(row[col_end])}"
+        if geo_key:
+            # SUCESSO: Chave é GPS + NÚMERO (Resolve o problema do vizinho)
+            return f"{geo_key}_NUM_{num}"
+        else:
+            # FALLBACK: Chave é TEXTO + NÚMERO
+            txt_key = limpar_e_normalizar_endereco(row[col_end])
+            return f"TXT_{txt_key}_NUM_{num}"
 
     df_temp['UID_AGRUPAMENTO'] = df_temp.apply(criar_chave_unica, axis=1)
     
     # Configura a agregação
     agg_dict = {col: 'first' for col in df_temp.columns if col not in ['UID_AGRUPAMENTO', col_seq, col_end]}
-    
-    # APLICAR CORRETOR NO ENDEREÇO
     agg_dict[col_end] = escolher_melhor_endereco 
     
     def unir_seqs(x): 
@@ -290,7 +316,7 @@ with tab2:
 with tab3:
     st.markdown("##### 📥 Upload Específico")
     st.markdown('<div class="success-box"><strong>⚡ Circuit Pro:</strong> Otimização de Paradas ("Casadinhas")</div>', unsafe_allow_html=True)
-    st.info("ℹ️ Funcionamento: 1. Agrupa endereços por GPS exato. 2. Corrige nomes (escolhe o mais completo).")
+    st.info("ℹ️ Critério Seguro: Agrupa apenas se (Endereço e Número iguais) OU (GPS Igual e Número Igual).")
     up_circuit = st.file_uploader("Upload Romaneio Específico", type=["xlsx"], key="up_circuit")
     
     if up_circuit:
