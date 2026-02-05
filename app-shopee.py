@@ -3,6 +3,7 @@ import pandas as pd
 import io
 import unicodedata
 import re
+import math
 from typing import List, Dict, Optional
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
@@ -136,35 +137,91 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         return {}
 
 # --- [NOVA LÓGICA] CIRCUIT PRO COM TRAVA DE NÚMERO ---
-def limpar_e_normalizar_endereco(endereco):
-    """Fallback para quando não tem GPS"""
-    if not isinstance(endereco, str): return str(endereco)
-    texto = remover_acentos(endereco)
-    texto = re.sub(r'[^\w\s]', ' ', texto)
-    return re.sub(r'\s+', ' ', texto).strip()
-
-def extrair_numero_endereco(endereco):
+def extrair_numero_correto(endereco):
     """
-    Extrai o número do endereço para evitar agrupar vizinhos com mesmo GPS.
-    Ex: 'Rua A, 123, Casa' -> '123'
+    CORREÇÃO PARA ERRO DE APARTAMENTO:
+    Prioriza o número que vem LOGO DEPOIS da rua (índice 1 no split por vírgula),
+    evitando pegar o número do apartamento no final da string.
     """
     if not isinstance(endereco, str): return "SN"
     
-    # 1. Tenta pegar o último pedaço após vírgula (Padrão: Rua, Numero)
+    # Normaliza
     partes = endereco.split(',')
-    if len(partes) > 1:
-        # Tenta no último bloco
-        match = re.search(r'(\d+)', partes[-1])
-        if match: return match.group(1)
-        # Tenta no penúltimo (caso tenha complemento depois: Rua, 123, Casa)
-        match = re.search(r'(\d+)', partes[-2])
-        if match: return match.group(1)
-            
-    # 2. Varredura completa (pega o último número encontrado na string)
-    todos_numeros = re.findall(r'(\d+)', endereco)
-    if todos_numeros: return todos_numeros[-1]
     
+    # Se tem formato "Rua, Numero, ..." (pelo menos 2 partes)
+    if len(partes) >= 2:
+        # Pega a segunda parte (índice 1) que deve ser o número do prédio
+        candidato = partes[1].strip()
+        # Tenta extrair apenas dígitos desse candidato
+        match = re.search(r'(\d+)', candidato)
+        if match:
+            return match.group(1)
+            
+    # Fallback: Se não achou na posição padrão, procura o primeiro número da string inteira
+    todos_numeros = re.findall(r'(\d+)', endereco)
+    if todos_numeros:
+        # Pega o PRIMEIRO número encontrado (geralmente é o da rua) e não o último
+        return todos_numeros[0]
+        
     return "SN"
+
+def normalizar_nome_rua(endereco):
+    if not isinstance(endereco, str): return ""
+    # Pega só a parte antes da primeira vírgula (Rua X)
+    nome = endereco.split(',')[0]
+    return limpar_string(remover_acentos(nome))
+
+def calcular_distancia_gps(lat1, lon1, lat2, lon2):
+    """Retorna distância em METROS usando Haversine"""
+    try:
+        lat1, lon1, lat2, lon2 = float(lat1), float(lon1), float(lat2), float(lon2)
+    except:
+        return 999999 # Se não tiver GPS válido, retorna longe
+        
+    R = 6371000 # Raio da Terra em metros
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    
+    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2) * math.sin(dlambda/2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    
+    return R * c
+
+def devem_agrupar(row1, row2):
+    """
+    Regras CLARAS de agrupamento (Solicitadas pelo Usuário):
+    1. Números DIFERENTES → NÃO AGRUPA (sempre!)
+    2. Números IGUAIS + Nome igual → AGRUPA
+    3. Números IGUAIS + GPS próximo → AGRUPA (mesmo com nomes diferentes)
+    """
+    # Dados Linha 1
+    num1 = row1['tmp_num']
+    nome1 = row1['tmp_nome']
+    lat1, lon1 = row1.get('tmp_lat', 0), row1.get('tmp_lon', 0)
+    
+    # Dados Linha 2
+    num2 = row2['tmp_num']
+    nome2 = row2['tmp_nome']
+    lat2, lon2 = row2.get('tmp_lat', 0), row2.get('tmp_lon', 0)
+    
+    # REGRA PRIORITÁRIA: Números diferentes = NÃO AGRUPA
+    if num1 != num2:
+        return False # ❌ Casas diferentes
+        
+    # Se chegou aqui: números são IGUAIS
+    
+    # REGRA 1: Nome + Número iguais
+    if nome1 == nome2:
+        return True # ✅ AGRUPA
+        
+    # REGRA 2: Nomes diferentes, mas GPS próximo (<= 10m)
+    if lat1 != 0 and lat2 != 0:
+        dist = calcular_distancia_gps(lat1, lon1, lat2, lon2)
+        if dist <= 10:
+            return True # ✅ AGRUPA (erro de digitação no nome)
+            
+    return False # ❌ NÃO AGRUPA
 
 def escolher_melhor_endereco(serie_enderecos):
     """Entre 'Av. Gov.' e 'Avenida Governador', escolhe o mais longo."""
@@ -182,31 +239,39 @@ def gerar_planilha_otimizada_circuit_pro(df):
     
     df_temp = df.copy()
 
-    def criar_chave_unica(row):
-        # Passo 1: Extrair o NÚMERO (A âncora do agrupamento)
-        num = extrair_numero_endereco(row[col_end])
-        
-        # Passo 2: Tenta GPS (5 casas = ~1m)
-        geo_key = ""
-        if col_lat and col_lon:
-            try:
-                lat, lon = float(row[col_lat]), float(row[col_lon])
-                if pd.notna(lat) and pd.notna(lon) and abs(lat) > 0.00001:
-                    geo_key = f"GEO_{round(lat, 5)}_{round(lon, 5)}"
-            except: pass 
-
-        if geo_key:
-            # SUCESSO: Chave é GPS + NÚMERO (Resolve o problema do vizinho)
-            return f"{geo_key}_NUM_{num}"
-        else:
-            # FALLBACK: Chave é TEXTO + NÚMERO
-            txt_key = limpar_e_normalizar_endereco(row[col_end])
-            return f"TXT_{txt_key}_NUM_{num}"
-
-    df_temp['UID_AGRUPAMENTO'] = df_temp.apply(criar_chave_unica, axis=1)
+    # 1. PREPARAR DADOS PARA COMPARAÇÃO
+    df_temp['tmp_num'] = df_temp[col_end].apply(extrair_numero_correto)
+    df_temp['tmp_nome'] = df_temp[col_end].apply(normalizar_nome_rua)
     
-    # Configura a agregação
-    agg_dict = {col: 'first' for col in df_temp.columns if col not in ['UID_AGRUPAMENTO', col_seq, col_end]}
+    if col_lat and col_lon:
+        df_temp['tmp_lat'] = pd.to_numeric(df_temp[col_lat], errors='coerce').fillna(0)
+        df_temp['tmp_lon'] = pd.to_numeric(df_temp[col_lon], errors='coerce').fillna(0)
+    else:
+        df_temp['tmp_lat'] = 0
+        df_temp['tmp_lon'] = 0
+
+    # 2. ORDENAR (Crucial para o loop funcionar)
+    # Agrupa vizinhos potenciais: Primeiro pelo número, depois pelo nome
+    df_temp = df_temp.sort_values(by=['tmp_num', 'tmp_nome']).reset_index(drop=True)
+    
+    # 3. APLICAR LÓGICA "DEVEM AGRUPAR" (Clusterização)
+    group_ids = [0] * len(df_temp)
+    current_id = 0
+    
+    for i in range(1, len(df_temp)):
+        prev_row = df_temp.iloc[i-1]
+        curr_row = df_temp.iloc[i]
+        
+        if devem_agrupar(prev_row, curr_row):
+            group_ids[i] = current_id # Mantém o ID (Agrupa)
+        else:
+            current_id += 1
+            group_ids[i] = current_id # Novo Grupo
+            
+    df_temp['CLUSTER_ID'] = group_ids
+    
+    # 4. AGREGAR DADOS
+    agg_dict = {col: 'first' for col in df_temp.columns if col not in ['CLUSTER_ID', col_seq, col_end, 'tmp_num', 'tmp_nome', 'tmp_lat', 'tmp_lon']}
     agg_dict[col_end] = escolher_melhor_endereco 
     
     def unir_seqs(x): 
@@ -215,13 +280,17 @@ def gerar_planilha_otimizada_circuit_pro(df):
         except: pass
         return ', '.join(vals)
     
-    df_final = df_temp.groupby('UID_AGRUPAMENTO').agg({**agg_dict, col_seq: unir_seqs}).reset_index()
+    df_final = df_temp.groupby('CLUSTER_ID').agg({**agg_dict, col_seq: unir_seqs}).reset_index()
+    
+    # Remove colunas temporárias
+    cols_drop = [c for c in ['CLUSTER_ID', 'tmp_num', 'tmp_nome', 'tmp_lat', 'tmp_lon'] if c in df_final.columns]
+    df_final = df_final.drop(columns=cols_drop)
     
     try:
         df_final['SortKey'] = df_final[col_seq].apply(lambda x: int(str(x).split(',')[0]))
-        return df_final.sort_values('SortKey').drop(columns=['UID_AGRUPAMENTO', 'SortKey'])
+        return df_final.sort_values('SortKey').drop(columns=['SortKey'])
     except:
-        return df_final.drop(columns=['UID_AGRUPAMENTO'])
+        return df_final
 
 # --- INTERFACE TABS ---
 tab1, tab2, tab3 = st.tabs(["🎯 Única", "📊 Lote", "⚡ Circuit"])
@@ -316,7 +385,7 @@ with tab2:
 with tab3:
     st.markdown("##### 📥 Upload Específico")
     st.markdown('<div class="success-box"><strong>⚡ Circuit Pro:</strong> Otimização de Paradas ("Casadinhas")</div>', unsafe_allow_html=True)
-    st.info("ℹ️ Critério Seguro: Agrupa apenas se (Endereço e Número iguais) OU (GPS Igual e Número Igual).")
+    st.info("ℹ️ Critério Seguro: Agrupa apenas se (Números Iguais) e (GPS <= 10m OU Nomes Iguais).")
     up_circuit = st.file_uploader("Upload Romaneio Específico", type=["xlsx"], key="up_circuit")
     
     if up_circuit:
