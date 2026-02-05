@@ -7,7 +7,7 @@ from typing import List, Dict, Optional
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
-    page_title="Filtro de Rotas e Paradas", 
+    page_title="Waze Humano - Rotas Shopee", 
     page_icon="🚚", 
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -22,7 +22,7 @@ TERMOS_COMERCIAIS = [
     'ESTACIONAMENTO', 'HOTEL', 'SUPERMERCADO', 'AMC', 'ATACADO', 'DISTRIBUIDORA', 
     'AUTOPECAS', 'VIDRAÇARIA', 'LABORATORIO', 'CLUBE', 'ASSOCIACAO', 'BOUTIQUE', 
     'MERCANTIL', 'DEPARTAMENTO', 'VARIEDADES', 'PIZZARIA', 'CHURRASCARIA', 
-    'CARNES', 'PEIXARIA', 'FRUTARIA', 'HORTIFRUTI', 'FLORICULTURA'
+    'CARNES', 'PEIXARIA', 'FRUTARIA', 'HORTIFRUTI', 'FLORICULTURA', 'SABOR LEVINHO'
 ]
 TERMOS_ANULADORES = ['FRENTE', 'LADO', 'PROXIMO', 'VIZINHO', 'DEFRONTE', 'ATRAS', 'DEPOIS', 'PERTO', 'VIZINHA']
 
@@ -30,45 +30,47 @@ TERMOS_ANULADORES = ['FRENTE', 'LADO', 'PROXIMO', 'VIZINHO', 'DEFRONTE', 'ATRAS'
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap');
-    :root { --shopee-orange: #EE4D2D; --shopee-bg: #F6F6F6; --placeholder-color: rgba(49, 51, 63, 0.4); }
+    :root { --shopee-orange: #EE4D2D; --shopee-bg: #F6F6F6; }
     .stApp { background-color: var(--shopee-bg); font-family: 'Inter', sans-serif; }
-    .header-container { text-align: center; padding: 20px 10px; background-color: white; border-bottom: 4px solid var(--shopee-orange); margin-bottom: 20px; border-radius: 0 0 20px 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
-    .main-title { color: var(--shopee-orange) !important; font-size: clamp(1.0rem, 4vw, 1.4rem) !important; font-weight: 800 !important; margin: 0 !important; line-height: 1.2 !important; display: block !important; }
     
-    /* TABS RESPONSIVAS */
-    .stTabs [data-baseweb="tab-list"] { 
-        gap: 4px; background-color: white; padding: 8px; border-radius: 15px;
-        overflow-x: auto; -webkit-overflow-scrolling: touch; display: flex; flex-wrap: nowrap;
+    /* Header Estilizado */
+    .header-container { 
+        text-align: center; padding: 25px 10px; background-color: white; 
+        border-bottom: 5px solid var(--shopee-orange); margin-bottom: 25px; 
+        border-radius: 0 0 25px 25px; box-shadow: 0 4px 15px rgba(238, 77, 45, 0.15); 
     }
-    .stTabs [data-baseweb="tab"] { 
-        height: 45px; background-color: #f0f0f0; border-radius: 10px; padding: 0 12px;
-        font-weight: 600; border: 2px solid transparent; white-space: nowrap; font-size: 14px; min-width: fit-content; flex-shrink: 0;
+    .main-title { 
+        color: var(--shopee-orange) !important; font-size: clamp(1.5rem, 5vw, 2.2rem) !important; 
+        font-weight: 900 !important; margin: 0 !important; letter-spacing: -1px;
     }
-    .stTabs [aria-selected="true"] { 
-        background-color: var(--shopee-orange) !important; color: white !important; border-color: var(--shopee-orange); 
+    .sub-title { color: #555; font-size: 0.9rem; margin-top: 5px; font-weight: 500; }
+
+    /* Botões */
+    div.stButton > button { 
+        background: linear-gradient(135deg, #EE4D2D 0%, #ff6b4f 100%) !important; 
+        color: white !important; font-size: 18px !important; font-weight: 700 !important; 
+        border-radius: 12px !important; border: none !important; height: 55px !important;
+        box-shadow: 0 4px 6px rgba(238, 77, 45, 0.2); transition: all 0.3s ease;
     }
-    @media (min-width: 768px) {
-        .stTabs [data-baseweb="tab-list"] { gap: 8px; padding: 10px; flex-wrap: wrap; }
-        .stTabs [data-baseweb="tab"] { height: 50px; padding: 0 24px; font-size: 16px; }
-    }
-    div.stButton > button { background-color: var(--shopee-orange) !important; color: white !important; font-size: 18px !important; font-weight: 700 !important; border-radius: 12px !important; width: 100% !important; height: 60px !important; border: none !important; }
-    .info-box { background: #EFF6FF; border-left: 4px solid #2563EB; padding: 12px 16px; border-radius: 8px; margin: 10px 0; font-size: 0.9rem; color: #1E40AF; }
-    .success-box { background: #F0FDF4; border-left: 4px solid #16A34A; padding: 12px 16px; border-radius: 8px; margin: 10px 0; color: #065F46; }
-    [data-testid="stFileUploader"] label[data-testid="stWidgetLabel"] { display: none; }
+    div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 6px 12px rgba(238, 77, 45, 0.3); }
+
+    /* Cards de Info */
+    .metric-card { background: white; padding: 15px; border-radius: 12px; border-left: 5px solid var(--shopee-orange); box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="header-container"><h1 class="main-title">Filtro de Rotas e Paradas</h1></div>', unsafe_allow_html=True)
+st.markdown('<div class="header-container"><h1 class="main-title">Waze Humano 🚚</h1><div class="sub-title">Estrategista das Rotas Shopee</div></div>', unsafe_allow_html=True)
 
 # --- INICIALIZAÇÃO DA SESSÃO ---
 if 'dados_prontos' not in st.session_state: st.session_state.dados_prontos = None
 if 'df_visual_tab1' not in st.session_state: st.session_state.df_visual_tab1 = None
+if 'df_mapa_tab1' not in st.session_state: st.session_state.df_mapa_tab1 = None # NOVO: Para o mapa
 if 'modo_atual' not in st.session_state: st.session_state.modo_atual = 'unica'
 if 'resultado_multiplas' not in st.session_state: st.session_state.resultado_multiplas = None
 if 'df_cache' not in st.session_state: st.session_state.df_cache = None
 if 'planilhas_sessao' not in st.session_state: st.session_state.planilhas_sessao = {}
 
-# --- FUNÇÕES AUXILIARES (GERAIS) ---
+# --- FUNÇÕES AUXILIARES ---
 @st.cache_data
 def remover_acentos(texto: str) -> str:
     return "".join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn').upper()
@@ -96,23 +98,64 @@ def identificar_comercio(endereco: str) -> str:
 def processar_gaiola_unica(df_raw: pd.DataFrame, gaiola_alvo: str, col_gaiola_idx: int) -> Optional[Dict]:
     try:
         target_limpo = limpar_string(gaiola_alvo)
+        
+        # Filtra pela gaiola (usando conversão string segura)
         df_filt = df_raw[df_raw[col_gaiola_idx].astype(str).apply(limpar_string) == target_limpo].copy()
         if df_filt.empty: return None
+
+        # Identifica colunas chaves dinamicamente
         col_end_idx = None
-        for r in range(min(15, len(df_raw))):
+        col_lat_idx = None
+        col_lon_idx = None
+        
+        # Varredura para encontrar colunas
+        for r in range(min(5, len(df_raw))): # Olha as primeiras linhas
             linha = [str(x).upper() for x in df_raw.iloc[r].values]
             for i, val in enumerate(linha):
-                if any(t in val for t in ['ENDERE', 'LOGRA', 'RUA', 'ADDRESS']):
-                    col_end_idx = i; break
+                if not col_end_idx and any(t in val for t in ['ENDERE', 'LOGRA', 'RUA', 'ADDRESS', 'DIRECCION']):
+                    col_end_idx = i
+                if not col_lat_idx and any(t in val for t in ['LATIT', 'LAT']):
+                    col_lat_idx = i
+                if not col_lon_idx and any(t in val for t in ['LONGIT', 'LON', 'LNG']):
+                    col_lon_idx = i
+        
+        # Fallback se não achar cabeçalho
         if col_end_idx is None:
+            # Pega a coluna com maior comprimento médio de string
             col_end_idx = df_filt.apply(lambda x: x.astype(str).map(len).max()).idxmax()
+
+        # Processamento
         df_filt['CHAVE_STOP'] = df_filt[col_end_idx].apply(extrair_base_endereco)
+        
+        # Mapa de paradas
         mapa_stops = {end: i + 1 for i, end in enumerate(df_filt['CHAVE_STOP'].unique())}
+        
         saida = pd.DataFrame()
-        saida['Parada'] = df_filt['CHAVE_STOP'].map(mapa_stops).astype(str)
-        saida['Gaiola'] = df_filt[col_gaiola_idx]; saida['Tipo'] = df_filt[col_end_idx].apply(identificar_comercio)
-        saida['Endereco_Completo'] = df_filt[col_end_idx].astype(str) + ", Fortaleza - CE"
-        return {'dataframe': saida, 'pacotes': len(saida), 'paradas': len(mapa_stops), 'comercios': len(saida[saida['Tipo'] == "🏪 Comércio"])}
+        saida['Parada'] = df_filt['CHAVE_STOP'].map(mapa_stops) # Mantém como int para ordenar
+        saida['Gaiola'] = df_filt[col_gaiola_idx]
+        saida['Tipo'] = df_filt[col_end_idx].apply(identificar_comercio)
+        saida['Endereco_Completo'] = df_filt[col_end_idx].astype(str)
+        
+        # Tenta extrair Lat/Lon para o mapa
+        df_geo = None
+        if col_lat_idx is not None and col_lon_idx is not None:
+            try:
+                df_filt['lat'] = pd.to_numeric(df_filt[col_lat_idx], errors='coerce')
+                df_filt['lon'] = pd.to_numeric(df_filt[col_lon_idx], errors='coerce')
+                df_geo = df_filt[['lat', 'lon']].dropna()
+            except:
+                pass
+
+        # Ordenar e formatar saída
+        saida = saida.sort_values('Parada')
+        
+        return {
+            'dataframe': saida, 
+            'df_geo': df_geo,
+            'pacotes': len(saida), 
+            'paradas': len(mapa_stops), 
+            'comercios': len(saida[saida['Tipo'] == "🏪 Comércio"])
+        }
     except Exception as e:
         st.error(f"⚠️ Erro ao processar gaiola {gaiola_alvo}: {str(e)}")
         return None
@@ -135,39 +178,26 @@ def processar_multiplas_gaiolas(arquivo_excel, codigos_gaiola: List[str]) -> Dic
         st.error(f"⚠️ Erro ao processar múltiplas gaiolas: {str(e)}")
         return {}
 
-# --- [NOVA LÓGICA] CIRCUIT PRO COM TRAVA DE NÚMERO ---
+# --- LÓGICA CIRCUIT PRO (MANTIDA) ---
 def limpar_e_normalizar_endereco(endereco):
-    """Fallback para quando não tem GPS"""
     if not isinstance(endereco, str): return str(endereco)
     texto = remover_acentos(endereco)
     texto = re.sub(r'[^\w\s]', ' ', texto)
     return re.sub(r'\s+', ' ', texto).strip()
 
 def extrair_numero_endereco(endereco):
-    """
-    Extrai o número do endereço para evitar agrupar vizinhos com mesmo GPS.
-    Ex: 'Rua A, 123, Casa' -> '123'
-    """
     if not isinstance(endereco, str): return "SN"
-    
-    # 1. Tenta pegar o último pedaço após vírgula (Padrão: Rua, Numero)
     partes = endereco.split(',')
     if len(partes) > 1:
-        # Tenta no último bloco
         match = re.search(r'(\d+)', partes[-1])
         if match: return match.group(1)
-        # Tenta no penúltimo (caso tenha complemento depois: Rua, 123, Casa)
         match = re.search(r'(\d+)', partes[-2])
         if match: return match.group(1)
-            
-    # 2. Varredura completa (pega o último número encontrado na string)
     todos_numeros = re.findall(r'(\d+)', endereco)
     if todos_numeros: return todos_numeros[-1]
-    
     return "SN"
 
 def escolher_melhor_endereco(serie_enderecos):
-    """Entre 'Av. Gov.' e 'Avenida Governador', escolhe o mais longo."""
     candidatos = [str(x).strip() for x in serie_enderecos if pd.notna(x) and str(x).strip() != '']
     if not candidatos: return ""
     return max(candidatos, key=len)
@@ -183,10 +213,7 @@ def gerar_planilha_otimizada_circuit_pro(df):
     df_temp = df.copy()
 
     def criar_chave_unica(row):
-        # Passo 1: Extrair o NÚMERO (A âncora do agrupamento)
         num = extrair_numero_endereco(row[col_end])
-        
-        # Passo 2: Tenta GPS (5 casas = ~1m)
         geo_key = ""
         if col_lat and col_lon:
             try:
@@ -195,17 +222,12 @@ def gerar_planilha_otimizada_circuit_pro(df):
                     geo_key = f"GEO_{round(lat, 5)}_{round(lon, 5)}"
             except: pass 
 
-        if geo_key:
-            # SUCESSO: Chave é GPS + NÚMERO (Resolve o problema do vizinho)
-            return f"{geo_key}_NUM_{num}"
+        if geo_key: return f"{geo_key}_NUM_{num}"
         else:
-            # FALLBACK: Chave é TEXTO + NÚMERO
             txt_key = limpar_e_normalizar_endereco(row[col_end])
             return f"TXT_{txt_key}_NUM_{num}"
 
     df_temp['UID_AGRUPAMENTO'] = df_temp.apply(criar_chave_unica, axis=1)
-    
-    # Configura a agregação
     agg_dict = {col: 'first' for col in df_temp.columns if col not in ['UID_AGRUPAMENTO', col_seq, col_end]}
     agg_dict[col_end] = escolher_melhor_endereco 
     
@@ -224,76 +246,140 @@ def gerar_planilha_otimizada_circuit_pro(df):
         return df_final.drop(columns=['UID_AGRUPAMENTO'])
 
 # --- INTERFACE TABS ---
-tab1, tab2, tab3 = st.tabs(["🎯 Única", "📊 Lote", "⚡ Circuit"])
+tab1, tab2, tab3 = st.tabs(["🎯 Gaiola Única", "📊 Processar Lote", "⚡ Otimizar Circuit"])
 
 with tab1:
-    st.markdown("##### 📥 Upload Romaneio Geral")
-    up_padrao = st.file_uploader("Upload Romaneio Geral", type=["xlsx"], key="up_padrao", label_visibility="collapsed")
+    st.markdown("##### 📥 Análise Detalhada de Rota")
+    up_padrao = st.file_uploader("Upload Romaneio (Excel)", type=["xlsx"], key="up_padrao", label_visibility="collapsed")
+    
     if up_padrao:
         if st.session_state.df_cache is None:
-            with st.spinner("📊 Carregando romaneio..."):
+            with st.spinner("📦 Lendo arquivo..."):
                 st.session_state.df_cache = pd.read_excel(up_padrao)
         
-        df_completo = st.session_state.df_cache
         xl = pd.ExcelFile(up_padrao)
         
-        st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Gerar rota detalhada.</div>', unsafe_allow_html=True)
-        g_unica = st.text_input("Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
-        if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1", use_container_width=True):
+        col_in, col_btn = st.columns([3, 1])
+        with col_in:
+            g_unica = st.text_input("Digite o Código da Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
+        with col_btn:
+            st.markdown("<br>", unsafe_allow_html=True) # Espaçamento
+            btn_processar = st.button("🔍 RASTREAR", key="btn_u_tab1", use_container_width=True)
+
+        if btn_processar:
             if not g_unica:
-                st.warning("⚠️ Por favor, digite o código da gaiola.")
+                st.warning("⚠️ Digite o código da gaiola.")
             else:
                 st.session_state.modo_atual = 'unica'
                 target = limpar_string(g_unica); enc = False
                 
-                with st.spinner(f"⚙️ Processando gaiola {g_unica}..."):
+                with st.spinner(f"⚙️ Mapeando gaiola {g_unica}..."):
                     for aba in xl.sheet_names:
                         df_r = pd.read_excel(xl, sheet_name=aba, header=None, engine='openpyxl')
+                        # Busca inteligente da coluna da gaiola
                         idx = next((c for c in df_r.columns if df_r[c].astype(str).apply(limpar_string).eq(target).any()), None)
+                        
                         if idx is not None:
                             res = processar_gaiola_unica(df_r, g_unica, idx)
                             if res:
-                                enc = True; buf = io.BytesIO()
+                                enc = True
+                                buf = io.BytesIO()
                                 with pd.ExcelWriter(buf, engine='openpyxl') as w: res['dataframe'].to_excel(w, index=False)
-                                st.session_state.dados_prontos = buf.getvalue(); st.session_state.df_visual_tab1 = res['dataframe']; st.session_state.metricas_tab1 = res; break
+                                st.session_state.dados_prontos = buf.getvalue()
+                                st.session_state.df_visual_tab1 = res['dataframe']
+                                st.session_state.df_mapa_tab1 = res['df_geo']
+                                st.session_state.metricas_tab1 = res
+                                break
                 
-                if not enc: st.error(f"❌ Gaiola '{g_unica}' não encontrada.")
+                if not enc: st.error(f"❌ Gaiola '{g_unica}' não encontrada no arquivo.")
         
+        # --- EXIBIÇÃO DE RESULTADOS DA ABA 1 ---
         if st.session_state.modo_atual == 'unica' and st.session_state.dados_prontos:
-            m = st.session_state.metricas_tab1; c = st.columns(3)
-            c[0].metric("📦 Pacotes", m["pacotes"]); c[1].metric("📍 Paradas", m["paradas"]); c[2].metric("🏪 Comércios", m["comercios"])
-            st.dataframe(st.session_state.df_visual_tab1, use_container_width=True, hide_index=True)
-            st.download_button("📥 BAIXAR PLANILHA", st.session_state.dados_prontos, f"Rota_{g_unica}.xlsx", use_container_width=True)
+            m = st.session_state.metricas_tab1
+            
+            # 1. Métricas
+            c1, c2, c3 = st.columns(3)
+            c1.metric("📦 Pacotes", m["pacotes"])
+            c2.metric("📍 Paradas Reais", m["paradas"])
+            c3.metric("🏪 Comércios Identificados", m["comercios"], delta_color="inverse")
+            
+            st.markdown("---")
+
+            # 2. Mapa (Se houver coordenadas)
+            if st.session_state.df_mapa_tab1 is not None and not st.session_state.df_mapa_tab1.empty:
+                st.markdown("##### 🗺️ Mapa de Calor da Rota")
+                st.map(st.session_state.df_mapa_tab1, size=20, color='#EE4D2D')
+            else:
+                st.info("ℹ️ Coordenadas GPS não encontradas no arquivo para plotar o mapa.")
+
+            # 3. Lista Rápida (Expander)
+            with st.expander("📱 Lista Rápida (Copiar para WhatsApp)"):
+                df_txt = st.session_state.df_visual_tab1
+                texto_zap = f"*ROTA {g_unica} - {m['pacotes']} Pcts / {m['paradas']} Stops*\n\n"
+                for idx, row in df_txt.iterrows():
+                    icone = "🏪" if row['Tipo'] == "🏪 Comércio" else "🏠"
+                    texto_zap += f"{int(row['Parada'])}. {icone} {row['Endereco_Completo']}\n"
+                st.text_area("Copie abaixo:", value=texto_zap, height=200)
+
+            # 4. Tabela Visual
+            st.markdown("##### 📋 Detalhes da Carga")
+            st.dataframe(
+                st.session_state.df_visual_tab1,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Parada": st.column_config.NumberColumn("Seq", format="%d"),
+                    "Tipo": st.column_config.TextColumn("Tipo", width="small"),
+                    "Endereco_Completo": st.column_config.TextColumn("Endereço", width="large"),
+                    "Gaiola": st.column_config.TextColumn("Gaiola", width="small"),
+                }
+            )
+            
+            # 5. Download
+            st.download_button(
+                label="📥 BAIXAR PLANILHA FORMATADA",
+                data=st.session_state.dados_prontos,
+                file_name=f"Rota_{g_unica}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
 
 with tab2:
-    st.markdown("##### 📥 Upload (Mesmo da Aba 1)")
+    st.markdown("##### 🏭 Processamento em Lote")
     if st.session_state.df_cache is not None and 'up_padrao' in locals() and up_padrao:
         xl = pd.ExcelFile(up_padrao)
-        st.markdown('<div class="info-box"><strong>💡 Modo Múltiplas Gaiolas:</strong> Resumo rápido.</div>', unsafe_allow_html=True)
-        cod_m = st.text_area("Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_tab2")
-        if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m_tab2", use_container_width=True):
+        cod_m = st.text_area("Cole as gaiolas aqui (uma por linha):", placeholder="A-36\nB-50\nC-12", key="cm_tab2", height=150)
+        
+        if st.button("🚀 PROCESSAR LISTA", key="btn_m_tab2", use_container_width=True):
             lista = [c.strip().upper() for c in cod_m.split('\n') if c.strip()]
             if not lista:
-                st.warning("⚠️ Por favor, digite pelo menos um código de gaiola.")
+                st.warning("⚠️ Lista vazia.")
             else:
                 st.session_state.modo_atual = 'multiplas'
-                with st.spinner(f"⚙️ Processando {len(lista)} gaiola(s)..."):
+                with st.spinner(f"⚙️ Processando {len(lista)} gaiolas..."):
                     st.session_state.resultado_multiplas = processar_multiplas_gaiolas(up_padrao, lista)
         
         if st.session_state.modo_atual == 'multiplas' and st.session_state.resultado_multiplas:
             res = st.session_state.resultado_multiplas
-            st.dataframe(pd.DataFrame([{'Gaiola': k, 'Status': '✅' if v['encontrado'] else '❌', 'Pacotes': v['pacotes'], 'Paradas': v['paradas']} for k, v in res.items()]), use_container_width=True, hide_index=True)
+            
+            # Tabela de Resumo Bonita
+            res_data = [{'Gaiola': k, 'Status': '✅ Achou' if v['encontrado'] else '❌ Não', 'Pacotes': v['pacotes'], 'Paradas': v['paradas'], 'Comércios': v['comercios']} for k, v in res.items()]
+            st.dataframe(pd.DataFrame(res_data), use_container_width=True, hide_index=True)
+            
             g_enc = [k for k, v in res.items() if v['encontrado']]
+            
             if g_enc:
-                st.markdown("---"); st.markdown("##### ✅ Selecione para download individual:")
+                st.markdown("##### 📥 Download Seletivo")
                 selecionadas = []
-                cols = st.columns(3)
+                cols = st.columns(4)
                 for i, g in enumerate(g_enc):
-                    with cols[i % 3]:
-                        if st.checkbox(f"**{g}**", key=f"chk_m_{g}"): selecionadas.append(g)
-                if selecionadas and st.button("📥 PREPARAR ARQUIVOS CIRCUIT"):
+                    with cols[i % 4]:
+                        if st.checkbox(f"{g}", key=f"chk_m_{g}", value=True): selecionadas.append(g)
+                
+                if selecionadas and st.button("GERAR ARQUIVOS INDIVIDUAIS"):
                     st.session_state.planilhas_sessao = {}
-                    for s in selecionadas:
+                    bar = st.progress(0)
+                    for i, s in enumerate(selecionadas):
                         target_l = limpar_string(s)
                         for aba in xl.sheet_names:
                             df_r = pd.read_excel(xl, sheet_name=aba, header=None, engine='openpyxl')
@@ -304,30 +390,51 @@ with tab2:
                                     b_ind = io.BytesIO()
                                     with pd.ExcelWriter(b_ind, engine='openpyxl') as w: r_ind['dataframe'].to_excel(w, index=False)
                                     st.session_state.planilhas_sessao[s] = b_ind.getvalue(); break
+                        bar.progress((i + 1) / len(selecionadas))
+                
                 if st.session_state.planilhas_sessao:
-                    st.markdown("##### 📥 Downloads Prontos:")
+                    st.success("✅ Arquivos prontos!")
                     cols_dl = st.columns(3)
                     for idx, (nome, data) in enumerate(st.session_state.planilhas_sessao.items()):
                         with cols_dl[idx % 3]:
-                            st.download_button(label=f"📄 Rota {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
+                            st.download_button(label=f"📄 {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
     else:
-        st.info("Faça o upload do romaneio na Aba 1 para usar esta função.")
+        st.info("ℹ️ Faça o upload do arquivo na aba 'Gaiola Única' primeiro.")
 
 with tab3:
-    st.markdown("##### 📥 Upload Específico")
-    st.markdown('<div class="success-box"><strong>⚡ Circuit Pro:</strong> Otimização de Paradas ("Casadinhas")</div>', unsafe_allow_html=True)
-    st.info("ℹ️ Critério Seguro: Agrupa apenas se (Endereço e Número iguais) OU (GPS Igual e Número Igual).")
-    up_circuit = st.file_uploader("Upload Romaneio Específico", type=["xlsx"], key="up_circuit")
+    st.markdown("##### ⚡ Otimizador Circuit Pro")
+    st.markdown("""
+    <div style="background-color: #e0f2fe; padding: 15px; border-radius: 10px; border-left: 5px solid #0284c7; color: #0c4a6e; font-size: 0.9rem;">
+        <strong>Função Casadinha Inteligente:</strong><br>
+        Agrupa pacotes entregues no mesmo local para economizar paradas no App Circuit.<br>
+        Critério: <em>(Mesmo GPS + Mesmo Número)</em> OU <em>(Mesmo Endereço + Mesmo Número)</em>.
+    </div>
+    """, unsafe_allow_html=True)
+    
+    up_circuit = st.file_uploader("Upload Planilha Circuit", type=["xlsx"], key="up_circuit")
     
     if up_circuit:
         df_c = pd.read_excel(up_circuit)
-        if st.button("🚀 GERAR PLANILHA DAS CASADINHAS", use_container_width=True):
+        if st.button("🚀 OTIMIZAR AGORA", use_container_width=True):
             res_c = gerar_planilha_otimizada_circuit_pro(df_c)
             if res_c is not None:
-                st.success(f"✅ Otimização concluída! {len(df_c)} pacotes reduzidos para {len(res_c)} paradas reais.")
+                stops_antes = len(df_c)
+                stops_depois = len(res_c)
+                economia = stops_antes - stops_depois
+                pct = int((economia / stops_antes) * 100)
+                
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Paradas Originais", stops_antes)
+                c2.metric("Paradas Otimizadas", stops_depois)
+                c3.metric("Economia", f"{economia} stops", f"-{pct}%", delta_color="normal")
+                
+                st.success(f"✅ Rota otimizada! Você economizou **{economia}** paradas virtuais.")
+                
                 buf_c = io.BytesIO()
                 with pd.ExcelWriter(buf_c, engine='openpyxl') as w: res_c.to_excel(w, index=False)
-                st.download_button("📥 BAIXAR PARA CIRCUIT", buf_c.getvalue(), "Circuit_Otimizado.xlsx", use_container_width=True)
-                st.dataframe(res_c, use_container_width=True, hide_index=True)
+                st.download_button("📥 BAIXAR ARQUIVO OTIMIZADO", buf_c.getvalue(), "Circuit_Otimizado.xlsx", use_container_width=True)
+                
+                with st.expander("Ver dados otimizados"):
+                    st.dataframe(res_c, use_container_width=True)
             else:
-                st.error("Erro: Colunas necessárias não encontradas (Endereço, Sequence).")
+                st.error("⚠️ Não encontrei as colunas necessárias (Address/Endereço e Sequence). Verifique o arquivo.")
