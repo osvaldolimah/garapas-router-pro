@@ -65,29 +65,57 @@ st.markdown("""
     .stApp { background-color: var(--shopee-bg); font-family: 'Inter', sans-serif; }
     .header-container { text-align: center; padding: 20px 10px; background-color: white; border-bottom: 4px solid var(--shopee-orange); margin-bottom: 20px; border-radius: 0 0 20px 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
     .main-title { color: var(--shopee-orange) !important; font-size: clamp(1.0rem, 4vw, 1.4rem) !important; font-weight: 800 !important; margin: 0 !important; line-height: 1.2 !important; display: block !important; }
-    
-    /* TABS RESPONSIVAS */
-    .stTabs [data-baseweb="tab-list"] { 
-        gap: 4px; background-color: white; padding: 8px; border-radius: 15px;
-        overflow-x: auto; -webkit-overflow-scrolling: touch; display: flex; flex-wrap: nowrap;
+
+    /* TABS: sem rolagem horizontal, permite quebra em linhas */
+    .stTabs [data-baseweb="tab-list"] {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        background-color: white;
+        padding: 6px;
+        border-radius: 15px;
+        width: 100%;
+        box-sizing: border-box;
+        overflow-x: hidden;
     }
-    .stTabs [data-baseweb="tab"] { 
-        height: 45px; background-color: #f0f0f0; border-radius: 10px; padding: 0 12px;
-        font-weight: 600; border: 2px solid transparent; white-space: nowrap; font-size: 14px; min-width: fit-content; flex-shrink: 0;
+
+    /* Cada aba: ocupa espaço proporcional, permite até 2 colunas em mobile */
+    .stTabs [data-baseweb="tab"] {
+        flex: 1 1 48%;
+        min-width: 0;
+        max-width: 48%;
+        background-color: #f0f0f0;
+        border-radius: 10px;
+        padding: 6px 8px;
+        font-weight: 600;
+        border: 2px solid transparent;
+        white-space: normal;
+        text-align: center;
+        font-size: 13px;
+        line-height: 1.1;
+        box-sizing: border-box;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
-    .stTabs [aria-selected="true"] { 
-        background-color: var(--shopee-orange) !important; color: white !important; border-color: var(--shopee-orange); 
+
+    /* Aba selecionada */
+    .stTabs [aria-selected="true"] {
+        background-color: var(--shopee-orange) !important;
+        color: white !important;
+        border-color: var(--shopee-orange);
     }
+
+    /* Ajustes para telas maiores: volta ao layout de uma linha com abas maiores */
     @media (min-width: 768px) {
-        .stTabs [data-baseweb="tab-list"] { gap: 8px; padding: 10px; flex-wrap: wrap; }
-        .stTabs [data-baseweb="tab"] { height: 50px; padding: 0 24px; font-size: 16px; }
+        .stTabs [data-baseweb="tab-list"] { gap: 8px; padding: 10px; flex-wrap: nowrap; }
+        .stTabs [data-baseweb="tab"] { flex: 0 0 auto; min-width: 140px; max-width: none; padding: 0 24px; font-size: 16px; height: 50px; white-space: nowrap; }
     }
+
+    /* Botão principal e cards mantidos */
     div.stButton > button { background-color: var(--shopee-orange) !important; color: white !important; font-size: 18px !important; font-weight: 700 !important; border-radius: 12px !important; width: 100% !important; height: 60px !important; border: none !important; }
     .info-box { background: #EFF6FF; border-left: 4px solid #2563EB; padding: 12px 16px; border-radius: 8px; margin: 10px 0; font-size: 0.9rem; color: #1E40AF; }
     .success-box { background: #F0FDF4; border-left: 4px solid #16A34A; padding: 12px 16px; border-radius: 8px; margin: 10px 0; color: #065F46; }
     [data-testid="stFileUploader"] label[data-testid="stWidgetLabel"] { display: none; }
-    
-    /* CARD ESTILO PIT STOP */
     .pit-card { background: white; padding: 15px; border-radius: 10px; border-left: 5px solid #EE4D2D; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 10px; }
     .pit-title { font-weight: 800; color: #333; font-size: 1.1rem; }
     .pit-meta { color: #666; font-size: 0.9rem; }
