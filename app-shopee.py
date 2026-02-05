@@ -41,55 +41,35 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap');
     :root { --shopee-orange: #EE4D2D; --shopee-bg: #F6F6F6; --placeholder-color: rgba(49, 51, 63, 0.4); }
     .stApp { background-color: var(--shopee-bg); font-family: 'Inter', sans-serif; }
+    .header-container { text-align: center; padding: 20px 10px; background-color: white; border-bottom: 4px solid var(--shopee-orange); margin-bottom: 20px; border-radius: 0 0 20px 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+    .main-title { color: var(--shopee-orange) !important; font-size: clamp(1.0rem, 4vw, 1.4rem) !important; font-weight: 800 !important; margin: 0 !important; line-height: 1.2 !important; display: block !important; }
     
-    /* Header Container */
-    .header-container { text-align: center; padding: 15px 10px; background-color: white; border-bottom: 4px solid var(--shopee-orange); margin-bottom: 15px; border-radius: 0 0 15px 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
-    .main-title { color: var(--shopee-orange) !important; font-size: clamp(1.1rem, 4vw, 1.4rem) !important; font-weight: 800 !important; margin: 0 !important; line-height: 1.2 !important; display: block !important; }
-    
-    /* TABS - Ajuste Responsivo Fino */
+    /* TABS RESPONSIVAS */
     .stTabs [data-baseweb="tab-list"] { 
-        gap: 4px; background-color: white; padding: 6px; border-radius: 12px;
+        gap: 4px; background-color: white; padding: 8px; border-radius: 15px;
         overflow-x: auto; -webkit-overflow-scrolling: touch; display: flex; flex-wrap: nowrap;
-        scrollbar-width: none; /* Esconde barra de rolagem no Firefox */
     }
-    .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar { display: none; /* Esconde no Chrome/Safari */ }
-    
     .stTabs [data-baseweb="tab"] { 
-        height: 40px; background-color: #f0f0f0; border-radius: 8px; padding: 0 10px;
-        font-weight: 600; border: 2px solid transparent; white-space: nowrap; font-size: 13px; 
-        min-width: auto; flex-shrink: 0; flex-grow: 1; text-align: center;
+        height: 45px; background-color: #f0f0f0; border-radius: 10px; padding: 0 12px;
+        font-weight: 600; border: 2px solid transparent; white-space: nowrap; font-size: 14px; min-width: fit-content; flex-shrink: 0;
     }
-    
     .stTabs [aria-selected="true"] { 
         background-color: var(--shopee-orange) !important; color: white !important; border-color: var(--shopee-orange); 
     }
-    
-    /* Mídia Query Específica para Celular (Ajuste Solicitado) */
-    @media (max-width: 480px) {
-        .stTabs [data-baseweb="tab"] { 
-            font-size: 11px; /* Fonte menor para caber 4 abas */
-            padding: 0 6px; /* Menos preenchimento lateral */
-            height: 38px;
-        }
-        .header-container { padding: 10px 5px; }
-        .pit-card { margin-left: 2px; margin-right: 2px; } /* Garante margem segura */
+    @media (min-width: 768px) {
+        .stTabs [data-baseweb="tab-list"] { gap: 8px; padding: 10px; flex-wrap: wrap; }
+        .stTabs [data-baseweb="tab"] { height: 50px; padding: 0 24px; font-size: 16px; }
     }
-
-    div.stButton > button { background-color: var(--shopee-orange) !important; color: white !important; font-size: 16px !important; font-weight: 700 !important; border-radius: 10px !important; width: 100% !important; height: 50px !important; border: none !important; }
-    
-    .info-box { background: #EFF6FF; border-left: 4px solid #2563EB; padding: 10px 12px; border-radius: 8px; margin: 8px 0; font-size: 0.85rem; color: #1E40AF; }
-    .success-box { background: #F0FDF4; border-left: 4px solid #16A34A; padding: 10px 12px; border-radius: 8px; margin: 8px 0; color: #065F46; }
+    div.stButton > button { background-color: var(--shopee-orange) !important; color: white !important; font-size: 18px !important; font-weight: 700 !important; border-radius: 12px !important; width: 100% !important; height: 60px !important; border: none !important; }
+    .info-box { background: #EFF6FF; border-left: 4px solid #2563EB; padding: 12px 16px; border-radius: 8px; margin: 10px 0; font-size: 0.9rem; color: #1E40AF; }
+    .success-box { background: #F0FDF4; border-left: 4px solid #16A34A; padding: 12px 16px; border-radius: 8px; margin: 10px 0; color: #065F46; }
     [data-testid="stFileUploader"] label[data-testid="stWidgetLabel"] { display: none; }
     
-    /* CARD ESTILO PIT STOP - Otimizado para Mobile */
-    .pit-card { 
-        background: white; padding: 12px; border-radius: 8px; 
-        border-left: 5px solid #EE4D2D; box-shadow: 0 2px 5px rgba(0,0,0,0.1); 
-        margin-bottom: 10px; width: 100%; box-sizing: border-box;
-    }
-    .pit-title { font-weight: 800; color: #333; font-size: 1rem; }
-    .pit-meta { color: #666; font-size: 0.85rem; margin-bottom: 4px; }
-    .pit-link { text-decoration: none; color: #2563EB; font-weight: bold; font-size: 0.85rem; display: block; margin-top: 5px;}
+    /* CARD ESTILO PIT STOP */
+    .pit-card { background: white; padding: 15px; border-radius: 10px; border-left: 5px solid #EE4D2D; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 10px; }
+    .pit-title { font-weight: 800; color: #333; font-size: 1.1rem; }
+    .pit-meta { color: #666; font-size: 0.9rem; }
+    .pit-link { text-decoration: none; color: #2563EB; font-weight: bold; font-size: 0.9rem; }
     </style>
 """, unsafe_allow_html=True)
 
