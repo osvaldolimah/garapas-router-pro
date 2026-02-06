@@ -316,23 +316,13 @@ def gerar_planilha_otimizada_circuit_pro(df):
         return df_final
 
 # --- FUNÇÕES OSM MELHORADAS ---
-
-@st.cache_data(ttl=3600)  # Cache por 1 hora
+@st.cache_data(ttl=3600)
 def buscar_locais_osm_cached(lat_round, lon_round, raio):
-    """
-    Versão com cache da busca OSM.
-    Arredonda coordenadas para evitar buscas duplicadas.
-    """
     return buscar_locais_osm_base(lat_round, lon_round, raio)
 
 def buscar_locais_osm_base(lat, lon, raio):
-    """
-    Busca na API Overpass com timeout reduzido e mais categorias
-    """
     try:
         overpass_url = "https://overpass-api.de/api/interpreter"
-        
-        # Query expandida: postos, restaurantes, cafés, fast-food, mercadinhos
         overpass_query = f"""
         [out:json][timeout:10];
         (
@@ -341,111 +331,64 @@ def buscar_locais_osm_base(lat, lon, raio):
         );
         out center;
         """
-        
-        response = SESSION.get(
-            overpass_url, 
-            params={'data': overpass_query}, 
-            timeout=10  # Reduzido de 25s para 10s
-        )
-        
+        response = SESSION.get(overpass_url, params={'data': overpass_query}, timeout=10)
         if response.status_code == 200:
             data = response.json()
             locais = []
-            
             for element in data.get('elements', []):
                 tags = element.get('tags', {})
                 nome = tags.get('name', 'Sem Nome')
                 amenity = tags.get('amenity', '')
                 shop = tags.get('shop', '')
                 
-                # Determina tipo e ícone
+                # Categorização
                 if amenity == 'fuel' or 'posto' in nome.lower():
-                    tipo_fmt = "⛽ Posto"
-                    icone = "⛽"
+                    tipo_fmt = "⛽ Posto"; icone = "⛽"
                 elif amenity in ['restaurant', 'cafe', 'fast_food']:
-                    tipo_fmt = "🍴 Restaurante"
-                    icone = "🍴"
+                    tipo_fmt = "🍴 Restaurante"; icone = "🍴"
                 elif shop in ['convenience', 'supermarket']:
-                    tipo_fmt = "🏪 Mercado"
-                    icone = "🏪"
+                    tipo_fmt = "🏪 Mercado"; icone = "🏪"
                 else:
-                    continue  # Pula outros tipos
-                
-                # Extrai coordenadas
-                e_lat, e_lon = None, None
-                if 'lat' in element and 'lon' in element:
-                    e_lat = element.get('lat')
-                    e_lon = element.get('lon')
-                elif 'center' in element:
-                    e_lat = element['center'].get('lat')
-                    e_lon = element['center'].get('lon')
-                
-                if e_lat is None or e_lon is None:
                     continue
                 
-                dist = calcular_distancia_gps(lat, lon, e_lat, e_lon)
+                e_lat, e_lon = None, None
+                if 'lat' in element and 'lon' in element:
+                    e_lat = element.get('lat'); e_lon = element.get('lon')
+                elif 'center' in element:
+                    e_lat = element['center'].get('lat'); e_lon = element['center'].get('lon')
                 
-                locais.append({
-                    'nome': nome,
-                    'tipo': tipo_fmt,
-                    'icone': icone,
-                    'distancia': dist,
-                    'lat': e_lat,
-                    'lon': e_lon
-                })
-            
-            # Ordena por distância e retorna top 10
+                if e_lat is None or e_lon is None: continue
+                dist = calcular_distancia_gps(lat, lon, e_lat, e_lon)
+                locais.append({'nome': nome, 'tipo': tipo_fmt, 'icone': icone, 'distancia': dist, 'lat': e_lat, 'lon': e_lon})
             locais.sort(key=lambda x: x['distancia'])
             return locais[:10]
         else:
-            logger.warning("Overpass retornou status %s", response.status_code)
             return []
-            
     except Exception as e:
         logger.exception("Erro ao consultar Overpass")
         return []
 
 def buscar_com_raio_progressivo(lat, lon, max_tentativas=3):
-    """
-    Tenta buscar com raios progressivos: 1.5km, 3km, 5km
-    Se não achar nada, aumenta o raio automaticamente
-    """
-    # Arredonda coordenadas para cache (3 casas = ~100m precisão)
-    lat_r = round(lat, 3)
-    lon_r = round(lon, 3)
-    
+    lat_r = round(lat, 3); lon_r = round(lon, 3)
     raios = [1500, 3000, 5000]
-    
     for tentativa, raio in enumerate(raios):
         try:
-            logger.info(f"Tentativa {tentativa + 1}/{len(raios)}: Buscando em {raio}m")
-            
             locais = buscar_locais_osm_cached(lat_r, lon_r, raio)
-            
             if locais:
-                logger.info(f"Encontrados {len(locais)} locais em {raio}m")
                 return locais, raio
-            
-            # Se não achou e não é última tentativa, aguarda
-            if tentativa < len(raios) - 1:
-                time.sleep(1)
-                
+            if tentativa < len(raios) - 1: time.sleep(1)
         except Exception as e:
-            logger.exception(f"Erro na tentativa {tentativa + 1}")
-            
-            # Se não é última tentativa, aguarda e tenta novamente
-            if tentativa < len(raios) - 1:
-                time.sleep(2)
-    
-    # Não encontrou nada
+            if tentativa < len(raios) - 1: time.sleep(2)
     return [], 0
 
 # --- INTERFACE TABS ---
-tab1, tab2, tab3, tab4 = st.tabs(["🎯 Única", "📊 Lote", "⚡ Circuit", "📍 Pit Stop"])
+# [ADICIONADA ABA 5]
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "⚡ Circuit Pro", "📍 Pit Stop", "🧭 Radar"])
 
 with tab1:
-    st.markdown("##### 📥 Upload Romaneio Geral")
-    up_padrao = st.file_uploader("Upload Romaneio Geral", type=["xlsx"], key="up_padrao", label_visibility="collapsed")
+    st.markdown("##### 📥 Upload do Romaneio")
+    up_padrao = st.file_uploader("Envie o arquivo Excel", type=["xlsx"], key="up_padrao")
+    
     if up_padrao:
         try:
             raw_bytes = up_padrao.read()
@@ -455,79 +398,76 @@ with tab1:
                 if st.session_state.get('up_padrao_bytes') != raw_bytes:
                     st.session_state.up_padrao_bytes = raw_bytes
                     st.session_state.df_cache = None
+                
                 if st.session_state.df_cache is None:
                     with st.spinner("📊 Carregando romaneio..."):
                         try:
                             st.session_state.df_cache = pd.read_excel(io.BytesIO(raw_bytes), engine='openpyxl')
                         except Exception:
                             st.session_state.df_cache = pd.read_excel(io.BytesIO(raw_bytes))
-                df_completo = st.session_state.df_cache
-                try:
-                    xl = pd.ExcelFile(io.BytesIO(raw_bytes), engine='openpyxl')
-                except Exception:
-                    xl = pd.ExcelFile(io.BytesIO(raw_bytes))
-                st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Gerar rota detalhada.</div>', unsafe_allow_html=True)
-                g_unica = st.text_input("Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
+                
+                st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Filtre e gere a rota detalhada.</div>', unsafe_allow_html=True)
+                g_unica = st.text_input("📦 Código da Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
+                
                 if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1", use_container_width=True):
                     if not g_unica:
-                        st.warning("⚠️ Por favor, digite o código da gaiola.")
+                        st.warning("⚠️ Digite o código da gaiola.")
                     else:
                         st.session_state.modo_atual = 'unica'
                         target = limpar_string(g_unica); enc = False
                         with st.spinner(f"⚙️ Processando gaiola {g_unica}..."):
-                            try:
-                                abas = carregar_abas_excel(raw_bytes)
-                                for aba, df_r in abas.items():
-                                    idx = next((c for c in df_r.columns if df_r[c].astype(str).apply(limpar_string).eq(target).any()), None)
-                                    if idx is not None:
-                                        res = processar_gaiola_unica(df_r, g_unica, idx)
-                                        if res:
-                                            enc = True
-                                            buf = io.BytesIO()
-                                            with pd.ExcelWriter(buf, engine='openpyxl') as w:
-                                                res['dataframe'].to_excel(w, index=False)
-                                            st.session_state.dados_prontos = buf.getvalue()
-                                            st.session_state.df_visual_tab1 = res['dataframe']
-                                            st.session_state.metricas_tab1 = res
-                                            break
-                            except Exception:
-                                logger.exception("Erro ao processar gaiola única")
-                                st.error("Erro interno ao processar. Ver logs.")
-                        if not enc:
-                            st.error(f"❌ Gaiola '{g_unica}' não encontrada.")
+                            abas = carregar_abas_excel(raw_bytes)
+                            for aba, df_r in abas.items():
+                                idx = next((c for c in df_r.columns if df_r[c].astype(str).apply(limpar_string).eq(target).any()), None)
+                                if idx is not None:
+                                    res = processar_gaiola_unica(df_r, g_unica, idx)
+                                    if res:
+                                        enc = True
+                                        buf = io.BytesIO()
+                                        with pd.ExcelWriter(buf, engine='openpyxl') as w:
+                                            res['dataframe'].to_excel(w, index=False)
+                                        st.session_state.dados_prontos = buf.getvalue()
+                                        st.session_state.df_visual_tab1 = res['dataframe']
+                                        st.session_state.metricas_tab1 = res
+                                        break
+                            if not enc:
+                                st.error(f"❌ Gaiola '{g_unica}' não encontrada.")
         except Exception:
-            logger.exception("Erro ao ler upload padrão")
-            st.error("Erro ao processar o arquivo enviado. Verifique o formato e tente novamente.")
+            st.error("Erro ao ler arquivo.")
+    
     if st.session_state.modo_atual == 'unica' and st.session_state.dados_prontos:
-        m = st.session_state.metricas_tab1; c = st.columns(3)
-        c[0].metric("📦 Pacotes", m["pacotes"]); c[1].metric("📍 Paradas", m["paradas"]); c[2].metric("🏪 Comércios", m["comercios"])
+        m = st.session_state.metricas_tab1
+        c = st.columns(3)
+        c[0].metric("📦 Pacotes", m["pacotes"])
+        c[1].metric("📍 Paradas", m["paradas"])
+        c[2].metric("🏪 Comércios", m["comercios"])
         st.dataframe(st.session_state.df_visual_tab1, use_container_width=True, hide_index=True)
         st.download_button("📥 BAIXAR PLANILHA", st.session_state.dados_prontos, f"Rota_{g_unica}.xlsx", use_container_width=True)
 
 with tab2:
-    st.markdown("##### 📥 Upload (Mesmo da Aba 1)")
+    st.markdown("##### 📥 Processamento em Lote")
+    
     if st.session_state.df_cache is not None and st.session_state.get('up_padrao_bytes') is not None:
         raw_bytes = st.session_state.up_padrao_bytes
-        try:
-            xl = pd.ExcelFile(io.BytesIO(raw_bytes), engine='openpyxl')
-        except Exception:
-            xl = pd.ExcelFile(io.BytesIO(raw_bytes))
-        st.markdown('<div class="info-box"><strong>💡 Modo Múltiplas Gaiolas:</strong> Resumo rápido.</div>', unsafe_allow_html=True)
-        cod_m = st.text_area("Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_tab2")
+        st.markdown('<div class="info-box"><strong>💡 Modo Múltiplas Gaiolas:</strong> Resumo rápido de várias cargas.</div>', unsafe_allow_html=True)
+        cod_m = st.text_area("📦 Códigos das Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_tab2", height=150)
+        
         if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m_tab2", use_container_width=True):
             lista = [c.strip().upper() for c in cod_m.split('\n') if c.strip()]
             if not lista:
-                st.warning("⚠️ Por favor, digite pelo menos um código de gaiola.")
+                st.warning("⚠️ Digite pelo menos um código.")
             else:
                 st.session_state.modo_atual = 'multiplas'
                 with st.spinner(f"⚙️ Processando {len(lista)} gaiola(s)..."):
                     st.session_state.resultado_multiplas = processar_multiplas_gaiolas(raw_bytes, lista)
+        
         if st.session_state.modo_atual == 'multiplas' and st.session_state.resultado_multiplas:
             res = st.session_state.resultado_multiplas
             st.dataframe(pd.DataFrame([{'Gaiola': k, 'Status': '✅' if v['encontrado'] else '❌', 'Pacotes': v['pacotes'], 'Paradas': v['paradas']} for k, v in res.items()]), use_container_width=True, hide_index=True)
             g_enc = [k for k, v in res.items() if v['encontrado']]
             if g_enc:
-                st.markdown("---"); st.markdown("##### ✅ Selecione para download individual:")
+                st.markdown("---")
+                st.markdown("##### ✅ Selecione para download individual:")
                 selecionadas = []
                 cols = st.columns(3)
                 for i, g in enumerate(g_enc):
@@ -550,96 +490,74 @@ with tab2:
                                         st.session_state.planilhas_sessao[s] = b_ind.getvalue()
                                         break
                     except Exception:
-                        logger.exception("Erro ao preparar arquivos circuit para download")
-                        st.error("Erro ao preparar arquivos. Ver logs.")
+                        st.error("Erro ao preparar arquivos.")
                 if st.session_state.planilhas_sessao:
                     st.markdown("##### 📥 Downloads Prontos:")
                     cols_dl = st.columns(3)
                     for idx, (nome, data) in enumerate(st.session_state.planilhas_sessao.items()):
                         with cols_dl[idx % 3]:
-                            st.download_button(label=f"📄 Rota {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
+                            st.download_button(label=f"📄 {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
     else:
-        st.info("Faça o upload do romaneio na Aba 1 para usar esta função.")
+        st.info("📤 Faça o upload do romaneio na aba 'Gaiola Única' primeiro.")
 
 with tab3:
-    st.markdown("##### 📥 Upload Específico")
-    st.markdown('<div class="success-box"><strong>⚡ Circuit Pro:</strong> Otimização de Paradas ("Casadinhas")</div>', unsafe_allow_html=True)
-    st.info("ℹ️ Critério Seguro: Agrupa apenas se (Números Iguais) e (GPS <= 10m OU Nomes Iguais).")
-    up_circuit = st.file_uploader("Upload Romaneio Específico", type=["xlsx"], key="up_circuit")
+    st.markdown("##### ⚡ Circuit Pro - Otimização de Casadinhas")
+    st.info("ℹ️ **Critério Inteligente:** Agrupa apenas se (Números Iguais) E (GPS ≤ 10m OU Nomes Iguais)")
+    up_circuit = st.file_uploader("📤 Upload do Romaneio Específico", type=["xlsx"], key="up_circuit")
+    
     if up_circuit:
         try:
             raw_c = up_circuit.read()
             if len(raw_c) > MAX_UPLOAD_BYTES:
-                st.error(f"Arquivo muito grande. Limite {MAX_UPLOAD_BYTES // (1024*1024)} MB.")
+                st.error("Arquivo muito grande.")
             else:
                 try:
                     df_c = pd.read_excel(io.BytesIO(raw_c), engine='openpyxl')
                 except Exception:
                     df_c = pd.read_excel(io.BytesIO(raw_c))
+                
                 if st.button("🚀 GERAR PLANILHA DAS CASADINHAS", use_container_width=True):
                     res_c = gerar_planilha_otimizada_circuit_pro(df_c)
                     if res_c is not None:
-                        st.success(f"✅ Otimização concluída! {len(df_c)} pacotes reduzidos para {len(res_c)} paradas reais.")
+                        reducao = len(df_c) - len(res_c)
+                        st.success(f"✅ Otimização concluída! Economia de {reducao} paradas.")
                         buf_c = io.BytesIO()
                         with pd.ExcelWriter(buf_c, engine='openpyxl') as w:
                             res_c.to_excel(w, index=False)
-                        st.download_button("📥 BAIXAR PARA CIRCUIT", buf_c.getvalue(), "Circuit_Otimizado.xlsx", use_container_width=True)
+                        st.download_button("📥 BAIXAR PLANILHA OTIMIZADA", buf_c.getvalue(), "Circuit_Otimizado.xlsx", use_container_width=True)
                         st.dataframe(res_c, use_container_width=True, hide_index=True)
                     else:
-                        st.error("Erro: Colunas necessárias não encontradas (Endereço, Sequence).")
+                        st.error("❌ Erro: Colunas necessárias não encontradas.")
         except Exception:
-            logger.exception("Erro ao processar upload Circuit")
-            st.error("Erro ao processar o arquivo enviado. Verifique o formato e tente novamente.")
+            st.error("Erro ao processar arquivo.")
 
 with tab4:
-    st.markdown("##### 📍 Encontre Serviços Próximos")
-    st.markdown('<div class="success-box"><strong>🔍 Pit Stop Melhorado:</strong> Busca inteligente com raio progressivo (1.5km → 3km → 5km)</div>', unsafe_allow_html=True)
+    st.markdown("##### 📍 Pit Stop - Serviços Próximos")
     
     if not GPS_AVAILABLE:
         st.error("⚠️ Biblioteca de GPS não encontrada. Adicione 'streamlit-js-eval' ao requirements.txt.")
     else:
-        st.info("📱 Clique no botão abaixo e permita o acesso à localização do navegador.")
-        
+        st.info("📱 Permita o acesso à localização do navegador.")
         location = get_geolocation(component_key='get_geo')
 
         if location:
             lat = location['coords']['latitude']
             lon = location['coords']['longitude']
-            st.success(f"📍 Localização encontrada: {lat:.5f}, {lon:.5f}")
             
-            # Botão manual para buscar (evita busca automática)
+            st.success(f"📍 Localização encontrada!")
+            
             if st.button("🔍 BUSCAR SERVIÇOS PRÓXIMOS", use_container_width=True, key="btn_buscar_pit"):
-                
-                # Placeholder para mensagens de progresso
-                status_placeholder = st.empty()
-                status_placeholder.info("🔍 Consultando mapa... (pode levar até 10s)")
-                
-                # Busca com raio progressivo
-                locais_proximos, raio_usado = buscar_com_raio_progressivo(lat, lon)
-                
-                # Remove placeholder
-                status_placeholder.empty()
+                with st.spinner("🔍 Consultando mapa..."):
+                    locais_proximos, raio_usado = buscar_com_raio_progressivo(lat, lon)
                 
                 if locais_proximos:
-                    # Mostra informação do raio usado
                     raio_km = raio_usado / 1000
                     st.success(f"✅ Encontrados **{len(locais_proximos)}** serviços em até **{raio_km:.1f} km**")
                     
-                    # Exibe resultados
-                    st.markdown("### 📍 Serviços Encontrados:")
-                    
                     for local in locais_proximos:
                         dist_m = int(local['distancia'])
-                        
-                        # Formata distância
-                        if dist_m < 1000:
-                            dist_fmt = f"{dist_m} metros"
-                        else:
-                            dist_km = dist_m / 1000
-                            dist_fmt = f"{dist_km:.1f} km"
-                        
+                        dist_fmt = f"{dist_m} metros" if dist_m < 1000 else f"{dist_m/1000:.1f} km"
                         link_maps = f"https://www.google.com/maps/search/?api=1&query={local['lat']},{local['lon']}"
-                        
                         st.markdown(f"""
                         <div class="pit-card">
                             <div class="pit-title">{local['icone']} {local['nome']}</div>
@@ -647,22 +565,77 @@ with tab4:
                             <a href="{link_maps}" target="_blank" class="pit-link">🗺️ Abrir no Google Maps</a>
                         </div>
                         """, unsafe_allow_html=True)
-                    
-                    # Informação extra
                     st.caption("🗺️ Dados fornecidos pelo OpenStreetMap")
-                    
                 else:
-                    # Nenhum serviço encontrado
-                    st.warning("⚠️ Nenhum serviço encontrado em até 5 km.")
+                    st.warning("⚠️ Nenhum serviço encontrado.")
+
+# --- ABA 5: RADAR DE BAIRROS (NOVA) ---
+with tab5:
+    st.markdown("##### 🧭 Radar de Bairros")
+    st.markdown('<div class="info-box"><strong>🎯 Estratégia:</strong> Descubra quais gaiolas passam pelos bairros que você prefere.</div>', unsafe_allow_html=True)
+    
+    # Inputs
+    bairros_txt = st.text_area("Digite os bairros (separados por vírgula)", placeholder="Ex: Maraponga, Jardim Cearense, Aerolândia", height=80)
+    
+    if st.button("🔍 RASTREAR GAIOLAS", key="btn_radar", use_container_width=True):
+        if not bairros_txt:
+            st.warning("⚠️ Digite pelo menos um bairro.")
+        elif st.session_state.get('up_padrao_bytes') is None:
+            st.warning("⚠️ Faça o upload do romaneio na Aba 1 primeiro.")
+        else:
+            bairros_lista = [limpar_string(b) for b in bairros_txt.split(',')]
+            raw_bytes = st.session_state.up_padrao_bytes
+            
+            with st.spinner("Varrendo todas as rotas..."):
+                try:
+                    abas = carregar_abas_excel(raw_bytes)
+                    gaiolas_identificadas = set()
                     
-                    st.info("""
-                    **Isso pode acontecer se:**
-                    - A região tem poucos estabelecimentos cadastrados no OpenStreetMap
-                    - Os servidores da API estão sobrecarregados
-                    - Você está em uma área muito afastada
+                    # 1. Identificar Gaiolas que passam nos bairros
+                    for sheet_name, df in abas.items():
+                        # Tenta achar coluna de Bairro
+                        col_bairro = next((c for c in df.columns if any(t in str(c).upper() for t in ['BAIRRO', 'NEIGHBORHOOD'])), None)
+                        # Tenta achar coluna de Gaiola
+                        col_gaiola = next((c for c in df.columns if any(t in str(c).upper() for t in ['GAIOLA', 'LETRA', 'ROTA'])), None)
+                        
+                        if col_bairro and col_gaiola:
+                            # Normaliza coluna Bairro para busca
+                            mask = df[col_bairro].astype(str).apply(limpar_string).apply(lambda x: any(b in x for b in bairros_lista))
+                            gaiolas_encontradas = df[mask][col_gaiola].astype(str).unique()
+                            for g in gaiolas_encontradas:
+                                gaiolas_identificadas.add(g)
                     
-                    **💡 Dicas:**
-                    - Tente novamente em alguns segundos
-                    - Verifique se permitiu acesso à localização
-                    - A busca funciona melhor em áreas urbanas
-                    """)
+                    # 2. Processar métricas dessas gaiolas
+                    resultados_radar = []
+                    for g in sorted(list(gaiolas_identificadas)):
+                         # Reutiliza lógica de busca da Tab 2
+                        target_l = limpar_string(g)
+                        for sheet_name, df in abas.items():
+                             # Acha coluna da gaiola nesta aba
+                            idx_g = next((c for c in df.columns if df[c].astype(str).apply(limpar_string).eq(target_l).any()), None)
+                            if idx_g is not None:
+                                res = processar_gaiola_unica(df, g, idx_g)
+                                if res:
+                                    # Calcula otimização
+                                    otimizacao = res['pacotes'] - res['paradas']
+                                    pct = (otimizacao / res['pacotes']) * 100 if res['pacotes'] > 0 else 0
+                                    
+                                    resultados_radar.append({
+                                        'Gaiola': g,
+                                        'Pacotes': res['pacotes'],
+                                        'Paradas Reais': res['paradas'],
+                                        'Economia': f"{otimizacao} ({int(pct)}%)",
+                                        'Comércios': res['comercios']
+                                    })
+                                break # Processou a gaiola, vai para a próxima
+                    
+                    if resultados_radar:
+                        st.success(f"✅ Encontradas {len(resultados_radar)} gaiolas na região!")
+                        df_radar = pd.DataFrame(resultados_radar)
+                        st.dataframe(df_radar, use_container_width=True, hide_index=True)
+                    else:
+                        st.warning("❌ Nenhuma gaiola encontrada para esses bairros.")
+                        
+                except Exception as e:
+                    logger.exception("Erro no Radar de Bairros")
+                    st.error("Erro ao processar. Verifique o arquivo.")
