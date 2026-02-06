@@ -6,6 +6,7 @@ import re
 import math
 import requests
 import logging
+import time
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from typing import List, Dict, Optional
@@ -24,7 +25,7 @@ SESSION = requests.Session()
 retries = Retry(total=3, backoff_factor=0.6, status_forcelist=[429, 500, 502, 503, 504])
 adapter = HTTPAdapter(max_retries=retries)
 SESSION.mount("https://", adapter)
-SESSION.mount("http://", adapter)  # mantém compatibilidade, mas preferimos HTTPS
+SESSION.mount("http://", adapter)
 
 # Tenta importar a lib de GPS
 try:
@@ -173,7 +174,6 @@ def processar_gaiola_unica(df_raw: pd.DataFrame, gaiola_alvo: str, col_gaiola_id
             if col_end_idx is not None:
                 break
         if col_end_idx is None:
-            # heurística alternativa: coluna com maior comprimento médio
             try:
                 col_end_idx = df_filt.apply(lambda x: x.astype(str).map(len).mean()).idxmax()
             except Exception:
@@ -192,9 +192,6 @@ def processar_gaiola_unica(df_raw: pd.DataFrame, gaiola_alvo: str, col_gaiola_id
         return None
 
 def carregar_abas_excel(arquivo_bytes: bytes) -> Dict[str, pd.DataFrame]:
-    """
-    Carrega todas as abas do Excel em memória e retorna um dict {sheet_name: DataFrame}.
-    """
     try:
         xl = pd.ExcelFile(io.BytesIO(arquivo_bytes), engine='openpyxl')
         abas = {}
@@ -202,7 +199,6 @@ def carregar_abas_excel(arquivo_bytes: bytes) -> Dict[str, pd.DataFrame]:
             try:
                 abas[sheet] = pd.read_excel(xl, sheet_name=sheet, header=None, engine='openpyxl')
             except Exception:
-                # tenta leitura sem engine específico
                 abas[sheet] = pd.read_excel(io.BytesIO(arquivo_bytes), sheet_name=sheet, header=None)
         return abas
     except Exception as e:
@@ -319,25 +315,63 @@ def gerar_planilha_otimizada_circuit_pro(df):
     except Exception:
         return df_final
 
-# --- FUNÇÃO PARA OSM (USANDO HTTPS E SESSION COM RETRY) ---
-def buscar_locais_osm(lat, lon, raio=1500):
+# --- FUNÇÕES OSM MELHORADAS ---
+
+@st.cache_data(ttl=3600)  # Cache por 1 hora
+def buscar_locais_osm_cached(lat_round, lon_round, raio):
+    """
+    Versão com cache da busca OSM.
+    Arredonda coordenadas para evitar buscas duplicadas.
+    """
+    return buscar_locais_osm_base(lat_round, lon_round, raio)
+
+def buscar_locais_osm_base(lat, lon, raio):
+    """
+    Busca na API Overpass com timeout reduzido e mais categorias
+    """
     try:
         overpass_url = "https://overpass-api.de/api/interpreter"
+        
+        # Query expandida: postos, restaurantes, cafés, fast-food, mercadinhos
         overpass_query = f"""
-        [out:json][timeout:25];
+        [out:json][timeout:10];
         (
-          nwr["amenity"~"^(restaurant|fuel)$"](around:{raio},{lat},{lon});
+          nwr["amenity"~"^(restaurant|fuel|cafe|fast_food)$"](around:{raio},{lat},{lon});
+          nwr["shop"~"^(convenience|supermarket)$"](around:{raio},{lat},{lon});
         );
         out center;
         """
-        response = SESSION.get(overpass_url, params={'data': overpass_query}, timeout=25)
+        
+        response = SESSION.get(
+            overpass_url, 
+            params={'data': overpass_query}, 
+            timeout=10  # Reduzido de 25s para 10s
+        )
+        
         if response.status_code == 200:
             data = response.json()
             locais = []
+            
             for element in data.get('elements', []):
                 tags = element.get('tags', {})
                 nome = tags.get('name', 'Sem Nome')
-                tipo = tags.get('amenity', 'Outro')
+                amenity = tags.get('amenity', '')
+                shop = tags.get('shop', '')
+                
+                # Determina tipo e ícone
+                if amenity == 'fuel' or 'posto' in nome.lower():
+                    tipo_fmt = "⛽ Posto"
+                    icone = "⛽"
+                elif amenity in ['restaurant', 'cafe', 'fast_food']:
+                    tipo_fmt = "🍴 Restaurante"
+                    icone = "🍴"
+                elif shop in ['convenience', 'supermarket']:
+                    tipo_fmt = "🏪 Mercado"
+                    icone = "🏪"
+                else:
+                    continue  # Pula outros tipos
+                
+                # Extrai coordenadas
                 e_lat, e_lon = None, None
                 if 'lat' in element and 'lon' in element:
                     e_lat = element.get('lat')
@@ -345,12 +379,12 @@ def buscar_locais_osm(lat, lon, raio=1500):
                 elif 'center' in element:
                     e_lat = element['center'].get('lat')
                     e_lon = element['center'].get('lon')
+                
                 if e_lat is None or e_lon is None:
                     continue
+                
                 dist = calcular_distancia_gps(lat, lon, e_lat, e_lon)
-                if tipo == 'fuel': tipo_fmt = "⛽ Posto"; icone = "⛽"
-                elif tipo == 'restaurant': tipo_fmt = "🍴 Restaurante"; icone = "🍴"
-                else: tipo_fmt = "📍 Local"; icone = "📍"
+                
                 locais.append({
                     'nome': nome,
                     'tipo': tipo_fmt,
@@ -359,14 +393,52 @@ def buscar_locais_osm(lat, lon, raio=1500):
                     'lat': e_lat,
                     'lon': e_lon
                 })
+            
+            # Ordena por distância e retorna top 10
             locais.sort(key=lambda x: x['distancia'])
-            return locais[:6]
+            return locais[:10]
         else:
             logger.warning("Overpass retornou status %s", response.status_code)
             return []
-    except Exception:
+            
+    except Exception as e:
         logger.exception("Erro ao consultar Overpass")
         return []
+
+def buscar_com_raio_progressivo(lat, lon, max_tentativas=3):
+    """
+    Tenta buscar com raios progressivos: 1.5km, 3km, 5km
+    Se não achar nada, aumenta o raio automaticamente
+    """
+    # Arredonda coordenadas para cache (3 casas = ~100m precisão)
+    lat_r = round(lat, 3)
+    lon_r = round(lon, 3)
+    
+    raios = [1500, 3000, 5000]
+    
+    for tentativa, raio in enumerate(raios):
+        try:
+            logger.info(f"Tentativa {tentativa + 1}/{len(raios)}: Buscando em {raio}m")
+            
+            locais = buscar_locais_osm_cached(lat_r, lon_r, raio)
+            
+            if locais:
+                logger.info(f"Encontrados {len(locais)} locais em {raio}m")
+                return locais, raio
+            
+            # Se não achou e não é última tentativa, aguarda
+            if tentativa < len(raios) - 1:
+                time.sleep(1)
+                
+        except Exception as e:
+            logger.exception(f"Erro na tentativa {tentativa + 1}")
+            
+            # Se não é última tentativa, aguarda e tenta novamente
+            if tentativa < len(raios) - 1:
+                time.sleep(2)
+    
+    # Não encontrou nada
+    return [], 0
 
 # --- INTERFACE TABS ---
 tab1, tab2, tab3, tab4 = st.tabs(["🎯 Única", "📊 Lote", "⚡ Circuit", "📍 Pit Stop"])
@@ -380,7 +452,6 @@ with tab1:
             if len(raw_bytes) > MAX_UPLOAD_BYTES:
                 st.error(f"Arquivo muito grande. Limite {MAX_UPLOAD_BYTES // (1024*1024)} MB.")
             else:
-                # invalidar cache se arquivo mudou
                 if st.session_state.get('up_padrao_bytes') != raw_bytes:
                     st.session_state.up_padrao_bytes = raw_bytes
                     st.session_state.df_cache = None
@@ -389,7 +460,6 @@ with tab1:
                         try:
                             st.session_state.df_cache = pd.read_excel(io.BytesIO(raw_bytes), engine='openpyxl')
                         except Exception:
-                            # fallback sem engine
                             st.session_state.df_cache = pd.read_excel(io.BytesIO(raw_bytes))
                 df_completo = st.session_state.df_cache
                 try:
@@ -405,7 +475,6 @@ with tab1:
                         st.session_state.modo_atual = 'unica'
                         target = limpar_string(g_unica); enc = False
                         with st.spinner(f"⚙️ Processando gaiola {g_unica}..."):
-                            # iterar abas já carregadas (evita reabrir arquivo)
                             try:
                                 abas = carregar_abas_excel(raw_bytes)
                                 for aba, df_r in abas.items():
@@ -523,35 +592,77 @@ with tab3:
             st.error("Erro ao processar o arquivo enviado. Verifique o formato e tente novamente.")
 
 with tab4:
-    st.markdown("##### 📍 Encontre Serviços Próximos (1.5km)")
+    st.markdown("##### 📍 Encontre Serviços Próximos")
+    st.markdown('<div class="success-box"><strong>🔍 Pit Stop Melhorado:</strong> Busca inteligente com raio progressivo (1.5km → 3km → 5km)</div>', unsafe_allow_html=True)
     
     if not GPS_AVAILABLE:
         st.error("⚠️ Biblioteca de GPS não encontrada. Adicione 'streamlit-js-eval' ao requirements.txt.")
     else:
-        st.info("Clique no botão abaixo e permita o acesso à localização do navegador.")
+        st.info("📱 Clique no botão abaixo e permita o acesso à localização do navegador.")
         
         location = get_geolocation(component_key='get_geo')
 
         if location:
             lat = location['coords']['latitude']
             lon = location['coords']['longitude']
-            st.success(f"📍 Localização encontrada! Buscando serviços...")
+            st.success(f"📍 Localização encontrada: {lat:.5f}, {lon:.5f}")
             
-            with st.spinner("Consultando mapa..."):
-                locais_proximos = buscar_locais_osm(lat, lon)
-            
-            if locais_proximos:
-                st.markdown("### ⛽ Postos e 🍴 Restaurantes:")
-                for local in locais_proximos:
-                    dist_m = int(local['distancia'])
-                    link_maps = f"https://www.google.com/maps/search/?api=1&query={local['lat']},{local['lon']}"
+            # Botão manual para buscar (evita busca automática)
+            if st.button("🔍 BUSCAR SERVIÇOS PRÓXIMOS", use_container_width=True, key="btn_buscar_pit"):
+                
+                # Placeholder para mensagens de progresso
+                status_placeholder = st.empty()
+                status_placeholder.info("🔍 Consultando mapa... (pode levar até 10s)")
+                
+                # Busca com raio progressivo
+                locais_proximos, raio_usado = buscar_com_raio_progressivo(lat, lon)
+                
+                # Remove placeholder
+                status_placeholder.empty()
+                
+                if locais_proximos:
+                    # Mostra informação do raio usado
+                    raio_km = raio_usado / 1000
+                    st.success(f"✅ Encontrados **{len(locais_proximos)}** serviços em até **{raio_km:.1f} km**")
                     
-                    st.markdown(f"""
-                    <div class="pit-card">
-                        <div class="pit-title">{local['icone']} {local['nome']}</div>
-                        <div class="pit-meta">{local['tipo']} • a <strong>{dist_m} metros</strong></div>
-                        <a href="{link_maps}" target="_blank" class="pit-link">🗺️ Abrir no Maps</a>
-                    </div>
-                    """, unsafe_allow_html=True)
-            else:
-                st.warning("Nenhum posto ou restaurante encontrado num raio de 1.5km (Verifique se há locais cadastrados no OpenStreetMap).")
+                    # Exibe resultados
+                    st.markdown("### 📍 Serviços Encontrados:")
+                    
+                    for local in locais_proximos:
+                        dist_m = int(local['distancia'])
+                        
+                        # Formata distância
+                        if dist_m < 1000:
+                            dist_fmt = f"{dist_m} metros"
+                        else:
+                            dist_km = dist_m / 1000
+                            dist_fmt = f"{dist_km:.1f} km"
+                        
+                        link_maps = f"https://www.google.com/maps/search/?api=1&query={local['lat']},{local['lon']}"
+                        
+                        st.markdown(f"""
+                        <div class="pit-card">
+                            <div class="pit-title">{local['icone']} {local['nome']}</div>
+                            <div class="pit-meta">{local['tipo']} • a <strong>{dist_fmt}</strong></div>
+                            <a href="{link_maps}" target="_blank" class="pit-link">🗺️ Abrir no Google Maps</a>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    # Informação extra
+                    st.caption("🗺️ Dados fornecidos pelo OpenStreetMap")
+                    
+                else:
+                    # Nenhum serviço encontrado
+                    st.warning("⚠️ Nenhum serviço encontrado em até 5 km.")
+                    
+                    st.info("""
+                    **Isso pode acontecer se:**
+                    - A região tem poucos estabelecimentos cadastrados no OpenStreetMap
+                    - Os servidores da API estão sobrecarregados
+                    - Você está em uma área muito afastada
+                    
+                    **💡 Dicas:**
+                    - Tente novamente em alguns segundos
+                    - Verifique se permitiu acesso à localização
+                    - A busca funciona melhor em áreas urbanas
+                    """)
