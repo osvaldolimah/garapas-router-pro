@@ -633,18 +633,50 @@ with tab5:
                     for g in sorted(list(gaiolas_identificadas)):
                          # Reutiliza lógica de busca da Tab 2
                         target_l = limpar_string(g)
+                        bairros_encontrados_set = set() # Armazena os bairros encontrados nesta gaiola
+
                         for sheet_name, df in abas.items():
                              # Acha coluna da gaiola nesta aba (varrendo conteúdo, não cabeçalho)
-                            idx_g = next((c for c in df.columns if df[c].astype(str).apply(limpar_string).eq(target_l).any()), None)
-                            if idx_g is not None:
-                                res = processar_gaiola_unica(df, g, idx_g)
+                            # Precisamos achar os índices novamente para esta aba específica
+                            col_g_idx = next((c for c in df.columns if df[c].astype(str).apply(limpar_string).eq(target_l).any()), None)
+                            
+                            # Tenta achar índice de Bairro também para extrair os nomes
+                            col_b_idx = None
+                            for r in range(min(5, len(df))):
+                                row_vals = [str(x).upper() for x in df.iloc[r].values]
+                                for i, val in enumerate(row_vals):
+                                    if any(t in val for t in ['BAIRRO', 'NEIGHBORHOOD']):
+                                        col_b_idx = i; break
+                                if col_b_idx is not None: break
+
+                            if col_g_idx is not None:
+                                # Processa métricas
+                                res = processar_gaiola_unica(df, g, col_g_idx)
+                                
+                                # Extrai quais bairros da lista estão nesta gaiola
+                                if col_b_idx is not None:
+                                    # Filtra linhas desta gaiola
+                                    mask_gaiola = df[col_g_idx].astype(str).apply(limpar_string) == target_l
+                                    bairros_na_gaiola = df.loc[mask_gaiola, col_b_idx].astype(str).unique()
+                                    
+                                    for b_real in bairros_na_gaiola:
+                                        b_norm = limpar_string(b_real)
+                                        # Se o bairro real contém algum dos buscados (ex: "Jardim America" contem "America")
+                                        for b_buscado in bairros_lista:
+                                            if b_buscado in b_norm:
+                                                bairros_encontrados_set.add(b_real.title()) # Adiciona formatado
+
                                 if res:
                                     # Calcula otimização
                                     otimizacao = res['pacotes'] - res['paradas']
                                     pct = (otimizacao / res['pacotes']) * 100 if res['pacotes'] > 0 else 0
                                     
+                                    # Formata lista de bairros encontrados
+                                    lista_bairros_str = ", ".join(sorted(list(bairros_encontrados_set))) if bairros_encontrados_set else "Vários"
+
                                     resultados_radar.append({
                                         'Gaiola': g,
+                                        'Bairros Encontrados': lista_bairros_str,
                                         'Pacotes': res['pacotes'],
                                         'Paradas Reais': res['paradas'],
                                         'Economia': f"{otimizacao} ({int(pct)}%)",
