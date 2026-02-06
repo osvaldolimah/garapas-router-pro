@@ -58,324 +58,73 @@ TERMOS_ANULADORES = ['FRENTE', 'LADO', 'PROXIMO', 'VIZINHO', 'DEFRONTE', 'ATRAS'
 # Limite de upload (bytes)
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 
-# --- SISTEMA DE DESIGN MODERNO (INSPIRADO NA IMAGEM) ---
+# --- SISTEMA DE DESIGN (CSS) ---
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
-    
-    /* VARIÁVEIS DE COR */
-    :root {
-        --azul-principal: #0D3B66;
-        --azul-escuro: #082744;
-        --azul-medio: #1A5490;
-        --branco: #FFFFFF;
-        --cinza-claro: #F5F7FA;
-        --cinza-texto: #6B7280;
-        --sombra-card: 0 10px 30px rgba(13, 59, 102, 0.15);
-    }
-    
-    /* RESET E GLOBAL */
-    * {
-        font-family: 'Montserrat', sans-serif !important;
-    }
-    
-    .stApp {
-        background: linear-gradient(135deg, #0D3B66 0%, #1A5490 50%, #0D3B66 100%);
-        position: relative;
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap');
+    :root { --shopee-orange: #EE4D2D; --shopee-bg: #F6F6F6; --placeholder-color: rgba(49, 51, 63, 0.4); }
+    .stApp { background-color: var(--shopee-bg); font-family: 'Inter', sans-serif; }
+    .header-container { text-align: center; padding: 20px 10px; background-color: white; border-bottom: 4px solid var(--shopee-orange); margin-bottom: 20px; border-radius: 0 0 20px 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+    .main-title { color: var(--shopee-orange) !important; font-size: clamp(1.0rem, 4vw, 1.4rem) !important; font-weight: 800 !important; margin: 0 !important; line-height: 1.2 !important; display: block !important; }
+
+    /* TABS: sem rolagem horizontal, permite quebra em linhas */
+    .stTabs [data-baseweb="tab-list"] {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        background-color: white;
+        padding: 6px;
+        border-radius: 15px;
+        width: 100%;
+        box-sizing: border-box;
         overflow-x: hidden;
     }
-    
-    /* FORMAS GEOMÉTRICAS DECORATIVAS */
-    .stApp::before {
-        content: '';
-        position: fixed;
-        top: -10%;
-        right: -5%;
-        width: 500px;
-        height: 500px;
-        background: rgba(255, 255, 255, 0.03);
-        border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
-        z-index: 0;
-        pointer-events: none;
-    }
-    
-    .stApp::after {
-        content: '';
-        position: fixed;
-        bottom: -10%;
-        left: -5%;
-        width: 600px;
-        height: 600px;
-        background: rgba(255, 255, 255, 0.02);
-        border-radius: 60% 40% 30% 70% / 60% 50% 40% 50%;
-        z-index: 0;
-        pointer-events: none;
-    }
-    
-    /* CONTAINER PRINCIPAL */
-    .main .block-container {
-        padding: 2rem 1rem;
-        max-width: 1200px;
-        position: relative;
-        z-index: 1;
-    }
-    
-    /* HEADER MODERNO */
-    .header-container {
-        background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.98) 100%);
-        backdrop-filter: blur(10px);
-        padding: 2rem 1.5rem;
-        border-radius: 20px;
-        margin-bottom: 2rem;
-        box-shadow: var(--sombra-card);
-        text-align: center;
-        position: relative;
-        overflow: hidden;
-    }
-    
-    .header-container::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 4px;
-        background: linear-gradient(90deg, #0D3B66, #1A5490, #0D3B66);
-    }
-    
-    .main-title {
-        color: var(--azul-principal) !important;
-        font-size: clamp(1.5rem, 5vw, 2rem) !important;
-        font-weight: 800 !important;
-        margin: 0 !important;
-        letter-spacing: -0.5px !important;
-    }
-    
-    /* TABS MODERNAS */
-    .stTabs {
-        background: transparent;
-    }
-    
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 0.5rem;
-        background: rgba(255, 255, 255, 0.1);
-        padding: 0.5rem;
-        border-radius: 15px;
-        backdrop-filter: blur(10px);
-    }
-    
+
+    /* Cada aba: ocupa espaço proporcional, permite até 2 colunas em mobile */
     .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        background: rgba(255, 255, 255, 0.15);
+        flex: 1 1 48%;
+        min-width: 0;
+        max-width: 48%;
+        background-color: #f0f0f0;
         border-radius: 10px;
-        padding: 0 1.5rem;
+        padding: 6px 8px;
         font-weight: 600;
-        color: rgba(255, 255, 255, 0.7);
         border: 2px solid transparent;
-        transition: all 0.3s ease;
-        font-size: 14px;
-        backdrop-filter: blur(5px);
-    }
-    
-    .stTabs [data-baseweb="tab"]:hover {
-        background: rgba(255, 255, 255, 0.25);
-        color: rgba(255, 255, 255, 0.9);
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background: white !important;
-        color: var(--azul-principal) !important;
-        border-color: white;
-        box-shadow: 0 4px 15px rgba(255, 255, 255, 0.3);
-    }
-    
-    /* CARDS BRANCOS */
-    .card-branco {
-        background: white;
-        border-radius: 15px;
-        padding: 1.5rem;
-        box-shadow: var(--sombra-card);
-        margin-bottom: 1.5rem;
-    }
-    
-    /* INFO BOX MODERNA */
-    .info-box {
-        background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%);
-        border-left: 4px solid #3B82F6;
-        padding: 1rem 1.25rem;
-        border-radius: 12px;
-        margin: 1rem 0;
-        font-size: 0.9rem;
-        color: #1E40AF;
-        box-shadow: 0 2px 10px rgba(59, 130, 246, 0.1);
-    }
-    
-    .success-box {
-        background: linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%);
-        border-left: 4px solid #22C55E;
-        padding: 1rem 1.25rem;
-        border-radius: 12px;
-        margin: 1rem 0;
-        color: #15803D;
-        box-shadow: 0 2px 10px rgba(34, 197, 94, 0.1);
-    }
-    
-    /* BOTÕES MODERNOS */
-    div.stButton > button {
-        background: linear-gradient(135deg, #0D3B66 0%, #1A5490 100%) !important;
-        color: white !important;
-        font-size: 16px !important;
-        font-weight: 700 !important;
-        border-radius: 12px !important;
-        width: 100% !important;
-        height: 55px !important;
-        border: none !important;
-        box-shadow: 0 4px 15px rgba(13, 59, 102, 0.3) !important;
-        transition: all 0.3s ease !important;
-        letter-spacing: 0.5px !important;
-    }
-    
-    div.stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(13, 59, 102, 0.4) !important;
-    }
-    
-    /* INPUTS MODERNOS */
-    .stTextInput > div > div > input,
-    .stTextArea > div > div > textarea {
-        border-radius: 10px !important;
-        border: 2px solid #E5E7EB !important;
-        padding: 0.75rem !important;
-        font-size: 0.95rem !important;
-        transition: all 0.3s ease !important;
-    }
-    
-    .stTextInput > div > div > input:focus,
-    .stTextArea > div > div > textarea:focus {
-        border-color: #1A5490 !important;
-        box-shadow: 0 0 0 3px rgba(26, 84, 144, 0.1) !important;
-    }
-    
-    /* FILE UPLOADER MODERNO */
-    [data-testid="stFileUploader"] {
-        background: white;
-        border-radius: 15px;
-        padding: 1.5rem;
-        box-shadow: var(--sombra-card);
-    }
-    
-    [data-testid="stFileUploader"] label {
-        color: var(--azul-principal) !important;
-        font-weight: 600 !important;
-        font-size: 0.95rem !important;
-    }
-    
-    /* DATAFRAME MODERNO */
-    .stDataFrame {
-        border-radius: 12px;
+        white-space: normal;
+        text-align: center;
+        font-size: 13px;
+        line-height: 1.1;
+        box-sizing: border-box;
         overflow: hidden;
-        box-shadow: 0 2px 15px rgba(0, 0, 0, 0.08);
+        text-overflow: ellipsis;
     }
-    
-    /* MÉTRICAS MODERNAS */
-    [data-testid="stMetricValue"] {
-        font-size: 2rem !important;
-        font-weight: 800 !important;
-        color: var(--azul-principal) !important;
+
+    /* Aba selecionada */
+    .stTabs [aria-selected="true"] {
+        background-color: var(--shopee-orange) !important;
+        color: white !important;
+        border-color: var(--shopee-orange);
     }
-    
-    [data-testid="stMetricLabel"] {
-        font-size: 0.9rem !important;
-        font-weight: 600 !important;
-        color: var(--cinza-texto) !important;
+
+    /* Ajustes para telas maiores: volta ao layout de uma linha com abas maiores */
+    @media (min-width: 768px) {
+        .stTabs [data-baseweb="tab-list"] { gap: 8px; padding: 10px; flex-wrap: nowrap; }
+        .stTabs [data-baseweb="tab"] { flex: 0 0 auto; min-width: 140px; max-width: none; padding: 0 24px; font-size: 16px; height: 50px; white-space: nowrap; }
     }
-    
-    /* PIT STOP CARDS */
-    .pit-card {
-        background: white;
-        padding: 1.25rem;
-        border-radius: 12px;
-        border-left: 4px solid var(--azul-principal);
-        box-shadow: 0 2px 10px rgba(13, 59, 102, 0.1);
-        margin-bottom: 1rem;
-        transition: all 0.3s ease;
-    }
-    
-    .pit-card:hover {
-        transform: translateX(5px);
-        box-shadow: 0 4px 20px rgba(13, 59, 102, 0.15);
-    }
-    
-    .pit-title {
-        font-weight: 700;
-        color: #1F2937;
-        font-size: 1.1rem;
-        margin-bottom: 0.5rem;
-    }
-    
-    .pit-meta {
-        color: #6B7280;
-        font-size: 0.9rem;
-        margin-bottom: 0.75rem;
-    }
-    
-    .pit-link {
-        text-decoration: none;
-        color: var(--azul-principal);
-        font-weight: 600;
-        font-size: 0.9rem;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        transition: all 0.3s ease;
-    }
-    
-    .pit-link:hover {
-        color: var(--azul-medio);
-    }
-    
-    /* RESPONSIVIDADE */
-    @media (max-width: 768px) {
-        .main .block-container {
-            padding: 1rem 0.5rem;
-        }
-        
-        .header-container {
-            padding: 1.5rem 1rem;
-        }
-        
-        .main-title {
-            font-size: 1.5rem !important;
-        }
-        
-        .stTabs [data-baseweb="tab"] {
-            padding: 0 1rem;
-            font-size: 13px;
-        }
-    }
-    
-    /* SCROLLBAR CUSTOMIZADA */
-    ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.1);
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.3);
-        border-radius: 4px;
-    }
-    
-    ::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.5);
-    }
+
+    /* Botão principal e cards mantidos */
+    div.stButton > button { background-color: var(--shopee-orange) !important; color: white !important; font-size: 18px !important; font-weight: 700 !important; border-radius: 12px !important; width: 100% !important; height: 60px !important; border: none !important; }
+    .info-box { background: #EFF6FF; border-left: 4px solid #2563EB; padding: 12px 16px; border-radius: 8px; margin: 10px 0; font-size: 0.9rem; color: #1E40AF; }
+    .success-box { background: #F0FDF4; border-left: 4px solid #16A34A; padding: 12px 16px; border-radius: 8px; margin: 10px 0; color: #065F46; }
+    [data-testid="stFileUploader"] label[data-testid="stWidgetLabel"] { display: none; }
+    .pit-card { background: white; padding: 15px; border-radius: 10px; border-left: 5px solid #EE4D2D; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 10px; }
+    .pit-title { font-weight: 800; color: #333; font-size: 1.1rem; }
+    .pit-meta { color: #666; font-size: 0.9rem; }
+    .pit-link { text-decoration: none; color: #2563EB; font-weight: bold; font-size: 0.9rem; }
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="header-container"><h1 class="main-title">🚚 Filtro de Rotas e Paradas</h1></div>', unsafe_allow_html=True)
+st.markdown('<div class="header-container"><h1 class="main-title">Filtro de Rotas e Paradas</h1></div>', unsafe_allow_html=True)
 
 # --- INICIALIZAÇÃO DA SESSÃO ---
 if 'dados_prontos' not in st.session_state: st.session_state.dados_prontos = None
@@ -567,13 +316,23 @@ def gerar_planilha_otimizada_circuit_pro(df):
         return df_final
 
 # --- FUNÇÕES OSM MELHORADAS ---
-@st.cache_data(ttl=3600)
+
+@st.cache_data(ttl=3600)  # Cache por 1 hora
 def buscar_locais_osm_cached(lat_round, lon_round, raio):
+    """
+    Versão com cache da busca OSM.
+    Arredonda coordenadas para evitar buscas duplicadas.
+    """
     return buscar_locais_osm_base(lat_round, lon_round, raio)
 
 def buscar_locais_osm_base(lat, lon, raio):
+    """
+    Busca na API Overpass com timeout reduzido e mais categorias
+    """
     try:
         overpass_url = "https://overpass-api.de/api/interpreter"
+        
+        # Query expandida: postos, restaurantes, cafés, fast-food, mercadinhos
         overpass_query = f"""
         [out:json][timeout:10];
         (
@@ -582,65 +341,111 @@ def buscar_locais_osm_base(lat, lon, raio):
         );
         out center;
         """
-        response = SESSION.get(overpass_url, params={'data': overpass_query}, timeout=10)
+        
+        response = SESSION.get(
+            overpass_url, 
+            params={'data': overpass_query}, 
+            timeout=10  # Reduzido de 25s para 10s
+        )
+        
         if response.status_code == 200:
             data = response.json()
             locais = []
+            
             for element in data.get('elements', []):
                 tags = element.get('tags', {})
                 nome = tags.get('name', 'Sem Nome')
                 amenity = tags.get('amenity', '')
                 shop = tags.get('shop', '')
+                
+                # Determina tipo e ícone
                 if amenity == 'fuel' or 'posto' in nome.lower():
-                    tipo_fmt = "⛽ Posto"; icone = "⛽"
+                    tipo_fmt = "⛽ Posto"
+                    icone = "⛽"
                 elif amenity in ['restaurant', 'cafe', 'fast_food']:
-                    tipo_fmt = "🍴 Restaurante"; icone = "🍴"
+                    tipo_fmt = "🍴 Restaurante"
+                    icone = "🍴"
                 elif shop in ['convenience', 'supermarket']:
-                    tipo_fmt = "🏪 Mercado"; icone = "🏪"
+                    tipo_fmt = "🏪 Mercado"
+                    icone = "🏪"
                 else:
-                    continue
+                    continue  # Pula outros tipos
+                
+                # Extrai coordenadas
                 e_lat, e_lon = None, None
                 if 'lat' in element and 'lon' in element:
-                    e_lat = element.get('lat'); e_lon = element.get('lon')
+                    e_lat = element.get('lat')
+                    e_lon = element.get('lon')
                 elif 'center' in element:
-                    e_lat = element['center'].get('lat'); e_lon = element['center'].get('lon')
-                if e_lat is None or e_lon is None: continue
+                    e_lat = element['center'].get('lat')
+                    e_lon = element['center'].get('lon')
+                
+                if e_lat is None or e_lon is None:
+                    continue
+                
                 dist = calcular_distancia_gps(lat, lon, e_lat, e_lon)
-                locais.append({'nome': nome, 'tipo': tipo_fmt, 'icone': icone, 'distancia': dist, 'lat': e_lat, 'lon': e_lon})
+                
+                locais.append({
+                    'nome': nome,
+                    'tipo': tipo_fmt,
+                    'icone': icone,
+                    'distancia': dist,
+                    'lat': e_lat,
+                    'lon': e_lon
+                })
+            
+            # Ordena por distância e retorna top 10
             locais.sort(key=lambda x: x['distancia'])
             return locais[:10]
         else:
             logger.warning("Overpass retornou status %s", response.status_code)
             return []
+            
     except Exception as e:
         logger.exception("Erro ao consultar Overpass")
         return []
 
 def buscar_com_raio_progressivo(lat, lon, max_tentativas=3):
-    lat_r = round(lat, 3); lon_r = round(lon, 3)
+    """
+    Tenta buscar com raios progressivos: 1.5km, 3km, 5km
+    Se não achar nada, aumenta o raio automaticamente
+    """
+    # Arredonda coordenadas para cache (3 casas = ~100m precisão)
+    lat_r = round(lat, 3)
+    lon_r = round(lon, 3)
+    
     raios = [1500, 3000, 5000]
+    
     for tentativa, raio in enumerate(raios):
         try:
             logger.info(f"Tentativa {tentativa + 1}/{len(raios)}: Buscando em {raio}m")
+            
             locais = buscar_locais_osm_cached(lat_r, lon_r, raio)
+            
             if locais:
                 logger.info(f"Encontrados {len(locais)} locais em {raio}m")
                 return locais, raio
-            if tentativa < len(raios) - 1: time.sleep(1)
+            
+            # Se não achou e não é última tentativa, aguarda
+            if tentativa < len(raios) - 1:
+                time.sleep(1)
+                
         except Exception as e:
             logger.exception(f"Erro na tentativa {tentativa + 1}")
-            if tentativa < len(raios) - 1: time.sleep(2)
+            
+            # Se não é última tentativa, aguarda e tenta novamente
+            if tentativa < len(raios) - 1:
+                time.sleep(2)
+    
+    # Não encontrou nada
     return [], 0
 
 # --- INTERFACE TABS ---
-tab1, tab2, tab3, tab4 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "⚡ Circuit Pro", "📍 Pit Stop"])
+tab1, tab2, tab3, tab4 = st.tabs(["🎯 Única", "📊 Lote", "⚡ Circuit", "📍 Pit Stop"])
 
 with tab1:
-    st.markdown('<div class="card-branco">', unsafe_allow_html=True)
-    st.markdown("##### 📥 Upload do Romaneio")
-    up_padrao = st.file_uploader("Envie o arquivo Excel com o romaneio completo", type=["xlsx"], key="up_padrao")
-    st.markdown('</div>', unsafe_allow_html=True)
-    
+    st.markdown("##### 📥 Upload Romaneio Geral")
+    up_padrao = st.file_uploader("Upload Romaneio Geral", type=["xlsx"], key="up_padrao", label_visibility="collapsed")
     if up_padrao:
         try:
             raw_bytes = up_padrao.read()
@@ -661,10 +466,8 @@ with tab1:
                     xl = pd.ExcelFile(io.BytesIO(raw_bytes), engine='openpyxl')
                 except Exception:
                     xl = pd.ExcelFile(io.BytesIO(raw_bytes))
-                
-                st.markdown('<div class="card-branco">', unsafe_allow_html=True)
-                st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Filtre e gere a rota detalhada de uma gaiola específica.</div>', unsafe_allow_html=True)
-                g_unica = st.text_input("📦 Código da Gaiola", placeholder="Ex: B-50, A-36, C-12", key="gui_tab1").strip().upper()
+                st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Gerar rota detalhada.</div>', unsafe_allow_html=True)
+                g_unica = st.text_input("Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
                 if st.button("🚀 GERAR ROTA DA GAIOLA", key="btn_u_tab1", use_container_width=True):
                     if not g_unica:
                         st.warning("⚠️ Por favor, digite o código da gaiola.")
@@ -692,37 +495,25 @@ with tab1:
                                 st.error("Erro interno ao processar. Ver logs.")
                         if not enc:
                             st.error(f"❌ Gaiola '{g_unica}' não encontrada.")
-                st.markdown('</div>', unsafe_allow_html=True)
         except Exception:
             logger.exception("Erro ao ler upload padrão")
             st.error("Erro ao processar o arquivo enviado. Verifique o formato e tente novamente.")
-    
     if st.session_state.modo_atual == 'unica' and st.session_state.dados_prontos:
-        st.markdown('<div class="card-branco">', unsafe_allow_html=True)
-        m = st.session_state.metricas_tab1
-        c = st.columns(3)
-        c[0].metric("📦 Pacotes", m["pacotes"])
-        c[1].metric("📍 Paradas", m["paradas"])
-        c[2].metric("🏪 Comércios", m["comercios"])
+        m = st.session_state.metricas_tab1; c = st.columns(3)
+        c[0].metric("📦 Pacotes", m["pacotes"]); c[1].metric("📍 Paradas", m["paradas"]); c[2].metric("🏪 Comércios", m["comercios"])
         st.dataframe(st.session_state.df_visual_tab1, use_container_width=True, hide_index=True)
         st.download_button("📥 BAIXAR PLANILHA", st.session_state.dados_prontos, f"Rota_{g_unica}.xlsx", use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
 with tab2:
-    st.markdown('<div class="card-branco">', unsafe_allow_html=True)
-    st.markdown("##### 📥 Processamento em Lote")
-    st.markdown('</div>', unsafe_allow_html=True)
-    
+    st.markdown("##### 📥 Upload (Mesmo da Aba 1)")
     if st.session_state.df_cache is not None and st.session_state.get('up_padrao_bytes') is not None:
         raw_bytes = st.session_state.up_padrao_bytes
         try:
             xl = pd.ExcelFile(io.BytesIO(raw_bytes), engine='openpyxl')
         except Exception:
             xl = pd.ExcelFile(io.BytesIO(raw_bytes))
-        
-        st.markdown('<div class="card-branco">', unsafe_allow_html=True)
-        st.markdown('<div class="info-box"><strong>💡 Modo Múltiplas Gaiolas:</strong> Processe várias gaiolas de uma vez e obtenha um resumo rápido.</div>', unsafe_allow_html=True)
-        cod_m = st.text_area("📦 Códigos das Gaiolas (uma por linha)", placeholder="A-36\nB-50\nC-12\nD-08", key="cm_tab2", height=150)
+        st.markdown('<div class="info-box"><strong>💡 Modo Múltiplas Gaiolas:</strong> Resumo rápido.</div>', unsafe_allow_html=True)
+        cod_m = st.text_area("Gaiolas (uma por linha)", placeholder="A-36\nB-50", key="cm_tab2")
         if st.button("📊 PROCESSAR MÚLTIPLAS GAIOLAS", key="btn_m_tab2", use_container_width=True):
             lista = [c.strip().upper() for c in cod_m.split('\n') if c.strip()]
             if not lista:
@@ -731,16 +522,12 @@ with tab2:
                 st.session_state.modo_atual = 'multiplas'
                 with st.spinner(f"⚙️ Processando {len(lista)} gaiola(s)..."):
                     st.session_state.resultado_multiplas = processar_multiplas_gaiolas(raw_bytes, lista)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
         if st.session_state.modo_atual == 'multiplas' and st.session_state.resultado_multiplas:
-            st.markdown('<div class="card-branco">', unsafe_allow_html=True)
             res = st.session_state.resultado_multiplas
             st.dataframe(pd.DataFrame([{'Gaiola': k, 'Status': '✅' if v['encontrado'] else '❌', 'Pacotes': v['pacotes'], 'Paradas': v['paradas']} for k, v in res.items()]), use_container_width=True, hide_index=True)
             g_enc = [k for k, v in res.items() if v['encontrado']]
             if g_enc:
-                st.markdown("---")
-                st.markdown("##### ✅ Selecione para download individual:")
+                st.markdown("---"); st.markdown("##### ✅ Selecione para download individual:")
                 selecionadas = []
                 cols = st.columns(3)
                 for i, g in enumerate(g_enc):
@@ -770,19 +557,15 @@ with tab2:
                     cols_dl = st.columns(3)
                     for idx, (nome, data) in enumerate(st.session_state.planilhas_sessao.items()):
                         with cols_dl[idx % 3]:
-                            st.download_button(label=f"📄 {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+                            st.download_button(label=f"📄 Rota {nome}", data=data, file_name=f"Rota_{nome}.xlsx", key=f"dl_sessao_{nome}", use_container_width=True)
     else:
-        st.info("📤 Faça o upload do romaneio na aba 'Gaiola Única' primeiro.")
+        st.info("Faça o upload do romaneio na Aba 1 para usar esta função.")
 
 with tab3:
-    st.markdown('<div class="card-branco">', unsafe_allow_html=True)
-    st.markdown("##### ⚡ Circuit Pro - Otimização de Casadinhas")
-    st.markdown('<div class="success-box"><strong>🎯 Funcionalidade:</strong> Agrupa pacotes para o mesmo endereço, otimizando suas paradas.</div>', unsafe_allow_html=True)
-    st.info("ℹ️ **Critério Inteligente:** Agrupa apenas se (Números Iguais) E (GPS ≤ 10m OU Nomes Iguais)")
-    up_circuit = st.file_uploader("📤 Upload do Romaneio Específico (já filtrado)", type=["xlsx"], key="up_circuit")
-    st.markdown('</div>', unsafe_allow_html=True)
-    
+    st.markdown("##### 📥 Upload Específico")
+    st.markdown('<div class="success-box"><strong>⚡ Circuit Pro:</strong> Otimização de Paradas ("Casadinhas")</div>', unsafe_allow_html=True)
+    st.info("ℹ️ Critério Seguro: Agrupa apenas se (Números Iguais) e (GPS <= 10m OU Nomes Iguais).")
+    up_circuit = st.file_uploader("Upload Romaneio Específico", type=["xlsx"], key="up_circuit")
     if up_circuit:
         try:
             raw_c = up_circuit.read()
@@ -793,66 +576,70 @@ with tab3:
                     df_c = pd.read_excel(io.BytesIO(raw_c), engine='openpyxl')
                 except Exception:
                     df_c = pd.read_excel(io.BytesIO(raw_c))
-                
-                st.markdown('<div class="card-branco">', unsafe_allow_html=True)
                 if st.button("🚀 GERAR PLANILHA DAS CASADINHAS", use_container_width=True):
                     res_c = gerar_planilha_otimizada_circuit_pro(df_c)
                     if res_c is not None:
-                        reducao = len(df_c) - len(res_c)
-                        st.success(f"✅ Otimização concluída! **{len(df_c)} pacotes** reduzidos para **{len(res_c)} paradas reais** (economia de {reducao} paradas)")
+                        st.success(f"✅ Otimização concluída! {len(df_c)} pacotes reduzidos para {len(res_c)} paradas reais.")
                         buf_c = io.BytesIO()
                         with pd.ExcelWriter(buf_c, engine='openpyxl') as w:
                             res_c.to_excel(w, index=False)
-                        st.download_button("📥 BAIXAR PLANILHA OTIMIZADA", buf_c.getvalue(), "Circuit_Otimizado.xlsx", use_container_width=True)
+                        st.download_button("📥 BAIXAR PARA CIRCUIT", buf_c.getvalue(), "Circuit_Otimizado.xlsx", use_container_width=True)
                         st.dataframe(res_c, use_container_width=True, hide_index=True)
                     else:
-                        st.error("❌ Erro: Colunas necessárias não encontradas (Endereço, Sequence).")
-                st.markdown('</div>', unsafe_allow_html=True)
+                        st.error("Erro: Colunas necessárias não encontradas (Endereço, Sequence).")
         except Exception:
             logger.exception("Erro ao processar upload Circuit")
             st.error("Erro ao processar o arquivo enviado. Verifique o formato e tente novamente.")
 
 with tab4:
-    st.markdown('<div class="card-branco">', unsafe_allow_html=True)
-    st.markdown("##### 📍 Pit Stop - Serviços Próximos")
-    st.markdown('<div class="success-box"><strong>🔍 Busca Inteligente:</strong> Localiza postos, restaurantes e mercados próximos à sua localização.</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("##### 📍 Encontre Serviços Próximos")
+    st.markdown('<div class="success-box"><strong>🔍 Pit Stop Melhorado:</strong> Busca inteligente com raio progressivo (1.5km → 3km → 5km)</div>', unsafe_allow_html=True)
     
     if not GPS_AVAILABLE:
         st.error("⚠️ Biblioteca de GPS não encontrada. Adicione 'streamlit-js-eval' ao requirements.txt.")
     else:
-        st.markdown('<div class="card-branco">', unsafe_allow_html=True)
-        st.info("📱 Permita o acesso à localização do navegador para buscar serviços próximos.")
+        st.info("📱 Clique no botão abaixo e permita o acesso à localização do navegador.")
+        
         location = get_geolocation(component_key='get_geo')
-        st.markdown('</div>', unsafe_allow_html=True)
 
         if location:
             lat = location['coords']['latitude']
             lon = location['coords']['longitude']
-            
-            st.markdown('<div class="card-branco">', unsafe_allow_html=True)
             st.success(f"📍 Localização encontrada: {lat:.5f}, {lon:.5f}")
             
+            # Botão manual para buscar (evita busca automática)
             if st.button("🔍 BUSCAR SERVIÇOS PRÓXIMOS", use_container_width=True, key="btn_buscar_pit"):
+                
+                # Placeholder para mensagens de progresso
                 status_placeholder = st.empty()
                 status_placeholder.info("🔍 Consultando mapa... (pode levar até 10s)")
+                
+                # Busca com raio progressivo
                 locais_proximos, raio_usado = buscar_com_raio_progressivo(lat, lon)
+                
+                # Remove placeholder
                 status_placeholder.empty()
                 
                 if locais_proximos:
+                    # Mostra informação do raio usado
                     raio_km = raio_usado / 1000
                     st.success(f"✅ Encontrados **{len(locais_proximos)}** serviços em até **{raio_km:.1f} km**")
-                    st.markdown("---")
-                    st.markdown("### 📍 Serviços Encontrados")
+                    
+                    # Exibe resultados
+                    st.markdown("### 📍 Serviços Encontrados:")
                     
                     for local in locais_proximos:
                         dist_m = int(local['distancia'])
+                        
+                        # Formata distância
                         if dist_m < 1000:
                             dist_fmt = f"{dist_m} metros"
                         else:
                             dist_km = dist_m / 1000
                             dist_fmt = f"{dist_km:.1f} km"
+                        
                         link_maps = f"https://www.google.com/maps/search/?api=1&query={local['lat']},{local['lon']}"
+                        
                         st.markdown(f"""
                         <div class="pit-card">
                             <div class="pit-title">{local['icone']} {local['nome']}</div>
@@ -860,9 +647,14 @@ with tab4:
                             <a href="{link_maps}" target="_blank" class="pit-link">🗺️ Abrir no Google Maps</a>
                         </div>
                         """, unsafe_allow_html=True)
+                    
+                    # Informação extra
                     st.caption("🗺️ Dados fornecidos pelo OpenStreetMap")
+                    
                 else:
+                    # Nenhum serviço encontrado
                     st.warning("⚠️ Nenhum serviço encontrado em até 5 km.")
+                    
                     st.info("""
                     **Isso pode acontecer se:**
                     - A região tem poucos estabelecimentos cadastrados no OpenStreetMap
@@ -874,4 +666,3 @@ with tab4:
                     - Verifique se permitiu acesso à localização
                     - A busca funciona melhor em áreas urbanas
                     """)
-            st.markdown('</div>', unsafe_allow_html=True)
