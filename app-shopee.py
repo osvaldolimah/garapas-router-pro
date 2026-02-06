@@ -382,7 +382,6 @@ def buscar_com_raio_progressivo(lat, lon, max_tentativas=3):
     return [], 0
 
 # --- INTERFACE TABS ---
-# [ADICIONADA ABA 5]
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "⚡ Circuit Pro", "📍 Pit Stop", "🧭 Radar"])
 
 with tab1:
@@ -569,7 +568,7 @@ with tab4:
                 else:
                     st.warning("⚠️ Nenhum serviço encontrado.")
 
-# --- ABA 5: RADAR DE BAIRROS (NOVA) ---
+# --- ABA 5: RADAR DE BAIRROS ---
 with tab5:
     st.markdown("##### 🧭 Radar de Bairros")
     st.markdown('<div class="info-box"><strong>🎯 Estratégia:</strong> Descubra quais gaiolas passam pelos bairros que você prefere.</div>', unsafe_allow_html=True)
@@ -593,17 +592,41 @@ with tab5:
                     
                     # 1. Identificar Gaiolas que passam nos bairros
                     for sheet_name, df in abas.items():
-                        # Tenta achar coluna de Bairro
-                        col_bairro = next((c for c in df.columns if any(t in str(c).upper() for t in ['BAIRRO', 'NEIGHBORHOOD'])), None)
-                        # Tenta achar coluna de Gaiola
-                        col_gaiola = next((c for c in df.columns if any(t in str(c).upper() for t in ['GAIOLA', 'LETRA', 'ROTA'])), None)
+                        # Lógica Inteligente para encontrar cabeçalho (Linha 0 a 5)
+                        col_bairro_idx = None
+                        col_gaiola_idx = None
                         
-                        if col_bairro and col_gaiola:
-                            # Normaliza coluna Bairro para busca
-                            mask = df[col_bairro].astype(str).apply(limpar_string).apply(lambda x: any(b in x for b in bairros_lista))
-                            gaiolas_encontradas = df[mask][col_gaiola].astype(str).unique()
+                        # Varre as primeiras 5 linhas para achar os índices das colunas
+                        for r in range(min(5, len(df))):
+                            row_values = [str(x).upper() for x in df.iloc[r].values]
+                            
+                            # Procura índice da coluna BAIRRO
+                            if col_bairro_idx is None:
+                                for i, val in enumerate(row_values):
+                                    if any(t in val for t in ['BAIRRO', 'NEIGHBORHOOD']):
+                                        col_bairro_idx = i
+                                        break
+                            
+                            # Procura índice da coluna GAIOLA
+                            if col_gaiola_idx is None:
+                                for i, val in enumerate(row_values):
+                                    if any(t in val for t in ['GAIOLA', 'LETRA', 'ROTA', 'CAGE', 'LPN']):
+                                        col_gaiola_idx = i
+                                        break
+                            
+                            # Se achou ambos, para a busca
+                            if col_bairro_idx is not None and col_gaiola_idx is not None:
+                                break
+                        
+                        if col_bairro_idx is not None and col_gaiola_idx is not None:
+                            # Normaliza coluna Bairro para busca (usando o índice encontrado)
+                            mask = df[col_bairro_idx].astype(str).apply(limpar_string).apply(lambda x: any(b in x for b in bairros_lista))
+                            gaiolas_encontradas = df[mask][col_gaiola_idx].astype(str).unique()
                             for g in gaiolas_encontradas:
-                                gaiolas_identificadas.add(g)
+                                # Filtra lixo (se houver cabeçalho repetido ou células vazias)
+                                g_limpo = limpar_string(g)
+                                if len(g_limpo) > 1 and "GAIOLA" not in g_limpo: 
+                                    gaiolas_identificadas.add(g)
                     
                     # 2. Processar métricas dessas gaiolas
                     resultados_radar = []
@@ -611,7 +634,7 @@ with tab5:
                          # Reutiliza lógica de busca da Tab 2
                         target_l = limpar_string(g)
                         for sheet_name, df in abas.items():
-                             # Acha coluna da gaiola nesta aba
+                             # Acha coluna da gaiola nesta aba (varrendo conteúdo, não cabeçalho)
                             idx_g = next((c for c in df.columns if df[c].astype(str).apply(limpar_string).eq(target_l).any()), None)
                             if idx_g is not None:
                                 res = processar_gaiola_unica(df, g, idx_g)
