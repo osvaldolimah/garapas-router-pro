@@ -592,6 +592,7 @@ with tab5:
                 
                 with st.spinner("Varrendo todas as rotas..."):
                     try:
+                        import difflib # Importação local para não tocar no topo
                         abas = carregar_abas_excel(raw_bytes)
                         
                         # --- OTIMIZAÇÃO: Pré-contagem rápida ---
@@ -617,30 +618,44 @@ with tab5:
                                     break
                             
                             if col_bairro_idx is not None and col_gaiola_idx is not None:
-                                # Normaliza coluna Bairro para busca
-                                series_bairro = df[col_bairro_idx].astype(str).apply(limpar_string)
-                                series_gaiola = df[col_gaiola_idx].astype(str)
+                                # Otimização com Fuzzy Matching
+                                unique_vals = df[col_bairro_idx].astype(str).unique()
+                                vals_aceitos_map = {} # {valor_real_no_arquivo: nome_bairro_buscado}
                                 
-                                for b_buscado in bairros_lista:
-                                    # Filtra linhas onde o bairro buscado está presente
-                                    mask = series_bairro.apply(lambda x: b_buscado in x)
+                                for val in unique_vals:
+                                    val_clean = limpar_string(val)
+                                    for b_alvo in bairros_lista:
+                                        # 1. Match exato ou substring
+                                        if b_alvo in val_clean:
+                                            vals_aceitos_map[val] = b_alvo
+                                            break
+                                        
+                                        # 2. Match aproximado (Typos)
+                                        if abs(len(b_alvo) - len(val_clean)) <= 3:
+                                            ratio = difflib.SequenceMatcher(None, b_alvo, val_clean).ratio()
+                                            if ratio > 0.80:
+                                                vals_aceitos_map[val] = b_alvo
+                                                break
+                                
+                                # Se encontrou algum bairro compatível nesta aba
+                                if vals_aceitos_map:
+                                    # Filtra linhas onde o bairro está na lista de aceitos
+                                    mask = df[col_bairro_idx].isin(vals_aceitos_map.keys())
                                     df_match = df[mask]
                                     
-                                    # Conta ocorrências
-                                    counts = df_match[col_gaiola_idx].astype(str).value_counts()
-                                    
-                                    for gaiola, count in counts.items():
+                                    # Itera sobre as linhas filtradas para contar
+                                    # (Poderíamos usar value_counts, mas precisamos mapear qual bairro foi achado)
+                                    for idx, row in df_match.iterrows():
+                                        gaiola = str(row[col_gaiola_idx])
+                                        bairro_real = row[col_bairro_idx]
+                                        bairro_encontrado = vals_aceitos_map.get(bairro_real, "Desconhecido")
+                                        
                                         g_limpo = limpar_string(gaiola)
-                                        # Filtra cabeçalhos repetidos
                                         if len(g_limpo) > 1 and "GAIOLA" not in g_limpo:
                                             if gaiola not in contagem_preliminar:
                                                 contagem_preliminar[gaiola] = {'count': 0, 'bairros': set()}
-                                            contagem_preliminar[gaiola]['count'] += count
-                                            # Adiciona nome real do bairro (formatado) para exibição
-                                            # Tenta pegar um exemplo legível da coluna original se possível,
-                                            # mas aqui usaremos o termo de busca para simplificar ou cruzaremos depois.
-                                            # Melhor: usar o termo buscado que deu match para exibição limpa
-                                            contagem_preliminar[gaiola]['bairros'].add(b_buscado)
+                                            contagem_preliminar[gaiola]['count'] += 1
+                                            contagem_preliminar[gaiola]['bairros'].add(bairro_encontrado)
 
                         # --- TRAVA 2: Filtro de Relevância (>= 20 entregas) ---
                         gaiolas_relevantes = [g for g, dados in contagem_preliminar.items() if dados['count'] >= 20]
@@ -652,13 +667,12 @@ with tab5:
                         for g in sorted(gaiolas_relevantes):
                             target_l = limpar_string(g)
                             
-                            # Recupera dados da pré-contagem
+                            # Recupera dados da pré-contagem e formata
                             bairros_encontrados_set = contagem_preliminar[g]['bairros']
-                            # Formata para exibição bonita (Ex: "MARAPONGA" -> "Maraponga")
                             bairros_display = ", ".join([b.title() for b in bairros_encontrados_set])
 
                             for sheet_name, df in abas.items():
-                                # Re-localiza coluna da gaiola (necessário pois mudamos de loop)
+                                # Re-localiza coluna da gaiola
                                 idx_g = next((c for c in df.columns if df[c].astype(str).apply(limpar_string).eq(target_l).any()), None)
                                 
                                 if idx_g is not None:
