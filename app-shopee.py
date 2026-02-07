@@ -574,123 +574,119 @@ with tab5:
     st.markdown('<div class="info-box"><strong>🎯 Estratégia:</strong> Descubra quais gaiolas passam pelos bairros que você prefere.</div>', unsafe_allow_html=True)
     
     # Inputs
-    bairros_txt = st.text_area("Digite os bairros (separados por vírgula)", placeholder="Ex: Maraponga, Jardim Cearense, Aerolândia", height=80)
+    bairros_txt = st.text_area("Digite os bairros (separados por vírgula)", placeholder="Ex: Maraponga, Jardim Cearense", height=80)
     
     if st.button("🔍 RASTREAR GAIOLAS", key="btn_radar", use_container_width=True):
         if not bairros_txt:
             st.warning("⚠️ Digite pelo menos um bairro.")
-        elif st.session_state.get('up_padrao_bytes') is None:
-            st.warning("⚠️ Faça o upload do romaneio na Aba 1 primeiro.")
         else:
-            bairros_lista = [limpar_string(b) for b in bairros_txt.split(',')]
-            raw_bytes = st.session_state.up_padrao_bytes
+            bairros_lista = [limpar_string(b) for b in bairros_txt.split(',') if b.strip()]
             
-            with st.spinner("Varrendo todas as rotas..."):
-                try:
-                    abas = carregar_abas_excel(raw_bytes)
-                    gaiolas_identificadas = set()
-                    
-                    # 1. Identificar Gaiolas que passam nos bairros
-                    for sheet_name, df in abas.items():
-                        # Lógica Inteligente para encontrar cabeçalho (Linha 0 a 5)
-                        col_bairro_idx = None
-                        col_gaiola_idx = None
+            # --- TRAVA 1: Limite de 2 bairros ---
+            if len(bairros_lista) > 2:
+                st.warning("⚠️ Para garantir a rapidez da busca, digite no máximo 2 bairros por vez.")
+            elif st.session_state.get('up_padrao_bytes') is None:
+                st.warning("⚠️ Faça o upload do romaneio na Aba 1 primeiro.")
+            else:
+                raw_bytes = st.session_state.up_padrao_bytes
+                
+                with st.spinner("Varrendo todas as rotas..."):
+                    try:
+                        abas = carregar_abas_excel(raw_bytes)
                         
-                        # Varre as primeiras 5 linhas para achar os índices das colunas
-                        for r in range(min(5, len(df))):
-                            row_values = [str(x).upper() for x in df.iloc[r].values]
-                            
-                            # Procura índice da coluna BAIRRO
-                            if col_bairro_idx is None:
-                                for i, val in enumerate(row_values):
-                                    if any(t in val for t in ['BAIRRO', 'NEIGHBORHOOD']):
-                                        col_bairro_idx = i
-                                        break
-                            
-                            # Procura índice da coluna GAIOLA
-                            if col_gaiola_idx is None:
-                                for i, val in enumerate(row_values):
-                                    if any(t in val for t in ['GAIOLA', 'LETRA', 'ROTA', 'CAGE', 'LPN']):
-                                        col_gaiola_idx = i
-                                        break
-                            
-                            # Se achou ambos, para a busca
-                            if col_bairro_idx is not None and col_gaiola_idx is not None:
-                                break
+                        # --- OTIMIZAÇÃO: Pré-contagem rápida ---
+                        # Armazena {gaiola: {count: int, bairros: set()}}
+                        contagem_preliminar = {} 
                         
-                        if col_bairro_idx is not None and col_gaiola_idx is not None:
-                            # Normaliza coluna Bairro para busca (usando o índice encontrado)
-                            mask = df[col_bairro_idx].astype(str).apply(limpar_string).apply(lambda x: any(b in x for b in bairros_lista))
-                            gaiolas_encontradas = df[mask][col_gaiola_idx].astype(str).unique()
-                            for g in gaiolas_encontradas:
-                                # Filtra lixo (se houver cabeçalho repetido ou células vazias)
-                                g_limpo = limpar_string(g)
-                                if len(g_limpo) > 1 and "GAIOLA" not in g_limpo: 
-                                    gaiolas_identificadas.add(g)
-                    
-                    # 2. Processar métricas dessas gaiolas
-                    resultados_radar = []
-                    for g in sorted(list(gaiolas_identificadas)):
-                         # Reutiliza lógica de busca da Tab 2
-                        target_l = limpar_string(g)
-                        bairros_encontrados_set = set() # Armazena os bairros encontrados nesta gaiola
-
                         for sheet_name, df in abas.items():
-                             # Acha coluna da gaiola nesta aba (varrendo conteúdo, não cabeçalho)
-                            # Precisamos achar os índices novamente para esta aba específica
-                            col_g_idx = next((c for c in df.columns if df[c].astype(str).apply(limpar_string).eq(target_l).any()), None)
+                            col_bairro_idx = None
+                            col_gaiola_idx = None
                             
-                            # Tenta achar índice de Bairro também para extrair os nomes
-                            col_b_idx = None
+                            # Varredura de cabeçalho
                             for r in range(min(5, len(df))):
-                                row_vals = [str(x).upper() for x in df.iloc[r].values]
-                                for i, val in enumerate(row_vals):
-                                    if any(t in val for t in ['BAIRRO', 'NEIGHBORHOOD']):
-                                        col_b_idx = i; break
-                                if col_b_idx is not None: break
-
-                            if col_g_idx is not None:
-                                # Processa métricas
-                                res = processar_gaiola_unica(df, g, col_g_idx)
+                                row_values = [str(x).upper() for x in df.iloc[r].values]
+                                if col_bairro_idx is None:
+                                    for i, val in enumerate(row_values):
+                                        if any(t in val for t in ['BAIRRO', 'NEIGHBORHOOD']):
+                                            col_bairro_idx = i; break
+                                if col_gaiola_idx is None:
+                                    for i, val in enumerate(row_values):
+                                        if any(t in val for t in ['GAIOLA', 'LETRA', 'ROTA', 'CAGE', 'LPN']):
+                                            col_gaiola_idx = i; break
+                                if col_bairro_idx is not None and col_gaiola_idx is not None:
+                                    break
+                            
+                            if col_bairro_idx is not None and col_gaiola_idx is not None:
+                                # Normaliza coluna Bairro para busca
+                                series_bairro = df[col_bairro_idx].astype(str).apply(limpar_string)
+                                series_gaiola = df[col_gaiola_idx].astype(str)
                                 
-                                # Extrai quais bairros da lista estão nesta gaiola
-                                if col_b_idx is not None:
-                                    # Filtra linhas desta gaiola
-                                    mask_gaiola = df[col_g_idx].astype(str).apply(limpar_string) == target_l
-                                    bairros_na_gaiola = df.loc[mask_gaiola, col_b_idx].astype(str).unique()
+                                for b_buscado in bairros_lista:
+                                    # Filtra linhas onde o bairro buscado está presente
+                                    mask = series_bairro.apply(lambda x: b_buscado in x)
+                                    df_match = df[mask]
                                     
-                                    for b_real in bairros_na_gaiola:
-                                        b_norm = limpar_string(b_real)
-                                        # Se o bairro real contém algum dos buscados (ex: "Jardim America" contem "America")
-                                        for b_buscado in bairros_lista:
-                                            if b_buscado in b_norm:
-                                                bairros_encontrados_set.add(b_real.title()) # Adiciona formatado
-
-                                if res:
-                                    # Calcula otimização
-                                    otimizacao = res['pacotes'] - res['paradas']
-                                    pct = (otimizacao / res['pacotes']) * 100 if res['pacotes'] > 0 else 0
+                                    # Conta ocorrências
+                                    counts = df_match[col_gaiola_idx].astype(str).value_counts()
                                     
-                                    # Formata lista de bairros encontrados
-                                    lista_bairros_str = ", ".join(sorted(list(bairros_encontrados_set))) if bairros_encontrados_set else "Vários"
+                                    for gaiola, count in counts.items():
+                                        g_limpo = limpar_string(gaiola)
+                                        # Filtra cabeçalhos repetidos
+                                        if len(g_limpo) > 1 and "GAIOLA" not in g_limpo:
+                                            if gaiola not in contagem_preliminar:
+                                                contagem_preliminar[gaiola] = {'count': 0, 'bairros': set()}
+                                            contagem_preliminar[gaiola]['count'] += count
+                                            # Adiciona nome real do bairro (formatado) para exibição
+                                            # Tenta pegar um exemplo legível da coluna original se possível,
+                                            # mas aqui usaremos o termo de busca para simplificar ou cruzaremos depois.
+                                            # Melhor: usar o termo buscado que deu match para exibição limpa
+                                            contagem_preliminar[gaiola]['bairros'].add(b_buscado)
 
-                                    resultados_radar.append({
-                                        'Gaiola': g,
-                                        'Bairros Encontrados': lista_bairros_str,
-                                        'Pacotes': res['pacotes'],
-                                        'Paradas Reais': res['paradas'],
-                                        'Economia': f"{otimizacao} ({int(pct)}%)",
-                                        'Comércios': res['comercios']
-                                    })
-                                break # Processou a gaiola, vai para a próxima
-                    
-                    if resultados_radar:
-                        st.success(f"✅ Encontradas {len(resultados_radar)} gaiolas na região!")
-                        df_radar = pd.DataFrame(resultados_radar)
-                        st.dataframe(df_radar, use_container_width=True, hide_index=True)
-                    else:
-                        st.warning("❌ Nenhuma gaiola encontrada para esses bairros.")
+                        # --- TRAVA 2: Filtro de Relevância (>= 20 entregas) ---
+                        gaiolas_relevantes = [g for g, dados in contagem_preliminar.items() if dados['count'] >= 20]
                         
-                except Exception as e:
-                    logger.exception("Erro no Radar de Bairros")
-                    st.error("Erro ao processar. Verifique o arquivo.")
+                        # 2. Processar métricas detalhadas APENAS para gaiolas relevantes
+                        resultados_radar = []
+                        
+                        # Ordena gaiolas processadas
+                        for g in sorted(gaiolas_relevantes):
+                            target_l = limpar_string(g)
+                            
+                            # Recupera dados da pré-contagem
+                            bairros_encontrados_set = contagem_preliminar[g]['bairros']
+                            # Formata para exibição bonita (Ex: "MARAPONGA" -> "Maraponga")
+                            bairros_display = ", ".join([b.title() for b in bairros_encontrados_set])
+
+                            for sheet_name, df in abas.items():
+                                # Re-localiza coluna da gaiola (necessário pois mudamos de loop)
+                                idx_g = next((c for c in df.columns if df[c].astype(str).apply(limpar_string).eq(target_l).any()), None)
+                                
+                                if idx_g is not None:
+                                    res = processar_gaiola_unica(df, g, idx_g)
+                                    if res:
+                                        otimizacao = res['pacotes'] - res['paradas']
+                                        pct = (otimizacao / res['pacotes']) * 100 if res['pacotes'] > 0 else 0
+                                        
+                                        resultados_radar.append({
+                                            'Gaiola': g,
+                                            'Bairros Encontrados': bairros_display,
+                                            'Pacotes': res['pacotes'],
+                                            'Paradas Reais': res['paradas'],
+                                            'Economia': f"{otimizacao} ({int(pct)}%)",
+                                            'Comércios': res['comercios']
+                                        })
+                                    break 
+                        
+                        if resultados_radar:
+                            st.success(f"✅ Encontradas {len(resultados_radar)} gaiolas com alta densidade na região!")
+                            df_radar = pd.DataFrame(resultados_radar)
+                            st.dataframe(df_radar, use_container_width=True, hide_index=True)
+                        else:
+                            if contagem_preliminar:
+                                st.warning("⚠️ Foram encontradas gaiolas nesses bairros, mas nenhuma atingiu o mínimo de 20 pacotes.")
+                            else:
+                                st.warning("❌ Nenhuma gaiola encontrada para esses bairros.")
+                            
+                    except Exception as e:
+                        logger.exception("Erro no Radar de Bairros")
+                        st.error("Erro ao processar. Verifique o arquivo.")
