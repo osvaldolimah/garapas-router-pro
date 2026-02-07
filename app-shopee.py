@@ -125,12 +125,13 @@ st.markdown("""
     
     /* Botões de SOS - Estilo Link */
     .sos-btn {
-        display: block; width: 100%; padding: 12px; margin: 5px 0;
-        background-color: white; border: 2px solid #ddd; border-radius: 10px;
-        text-align: center; text-decoration: none; font-weight: bold; color: #333;
-        transition: 0.2s;
+        display: block; width: 100%; padding: 15px; margin: 5px 0;
+        background-color: white; border: 2px solid #e0e0e0; border-radius: 10px;
+        text-align: center; text-decoration: none; font-weight: 800; color: #333;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05); transition: 0.2s;
+        font-size: 1.1rem;
     }
-    .sos-btn:hover { background-color: #f8f8f8; border-color: #bbb; }
+    .sos-btn:hover { background-color: #f8f8f8; border-color: #bbb; transform: translateY(-1px); }
     </style>
 """, unsafe_allow_html=True)
 
@@ -391,7 +392,7 @@ def buscar_com_raio_progressivo(lat, lon, max_tentativas=3):
             if tentativa < len(raios) - 1: time.sleep(2)
     return [], 0
 
-# --- NOVAS FUNÇÕES PARA ABA 6 (SOS) ---
+# --- NOVAS FUNÇÕES PARA ABA 6 (SOS) - MANTIDAS MAS NÃO USADAS NA UI (DEAD CODE POR SEGURANÇA) ---
 @st.cache_data(ttl=3600)
 def buscar_sos_osm_cached(lat_round, lon_round, raio):
     return buscar_sos_osm_base(lat_round, lon_round, raio)
@@ -399,7 +400,6 @@ def buscar_sos_osm_cached(lat_round, lon_round, raio):
 def buscar_sos_osm_base(lat, lon, raio):
     try:
         overpass_url = "https://overpass-api.de/api/interpreter"
-        # Timeout aumentado para 25s e query simplificada
         overpass_query = f"""
         [out:json][timeout:25];
         (
@@ -418,21 +418,17 @@ def buscar_sos_osm_base(lat, lon, raio):
                 nome = tags.get('name', 'Sem Nome')
                 shop = tags.get('shop', '')
                 nome_lower = nome.lower()
-                
-                # Categorização
                 if 'borracharia' in nome_lower or shop == 'tyres':
                     tipo_fmt = "🔘 Borracharia"; icone = "🔘"
                 elif 'reboque' in nome_lower:
                     tipo_fmt = "🛻 Reboque"; icone = "🛻"
                 else:
                     tipo_fmt = "🔧 Oficina"; icone = "🔧"
-                
                 e_lat, e_lon = None, None
                 if 'lat' in element and 'lon' in element:
                     e_lat = element.get('lat'); e_lon = element.get('lon')
                 elif 'center' in element:
                     e_lat = element['center'].get('lat'); e_lon = element['center'].get('lon')
-                
                 if e_lat is None or e_lon is None: continue
                 dist = calcular_distancia_gps(lat, lon, e_lat, e_lon)
                 locais.append({'nome': nome, 'tipo': tipo_fmt, 'icone': icone, 'distancia': dist, 'lat': e_lat, 'lon': e_lon})
@@ -442,6 +438,19 @@ def buscar_sos_osm_base(lat, lon, raio):
             return []
     except Exception:
         return []
+
+def buscar_sos_progressivo(lat, lon):
+    lat_r = round(lat, 3); lon_r = round(lon, 3)
+    raios = [2000, 5000, 10000] 
+    for tentativa, raio in enumerate(raios):
+        try:
+            locais = buscar_sos_osm_cached(lat_r, lon_r, raio)
+            if locais:
+                return locais, raio
+            if tentativa < len(raios) - 1: time.sleep(1)
+        except Exception:
+            pass
+    return [], 0
 
 # --- INTERFACE TABS ---
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "⚡ Circuit Pro", "🧭 Radar", "📍 Pit Stop", "🛠️ SOS Mecânico"])
@@ -750,28 +759,14 @@ with tab5:
             
             st.success(f"📍 Localização encontrada!")
             
-            if st.button("🔍 BUSCAR SERVIÇOS PRÓXIMOS", use_container_width=True, key="btn_buscar_pit"):
-                with st.spinner("🔍 Consultando mapa..."):
-                    locais_proximos, raio_usado = buscar_com_raio_progressivo(lat, lon)
-                
-                if locais_proximos:
-                    raio_km = raio_usado / 1000
-                    st.success(f"✅ Encontrados **{len(locais_proximos)}** serviços em até **{raio_km:.1f} km**")
-                    
-                    for local in locais_proximos:
-                        dist_m = int(local['distancia'])
-                        dist_fmt = f"{dist_m} metros" if dist_m < 1000 else f"{dist_m/1000:.1f} km"
-                        link_maps = f"https://www.google.com/maps/search/?api=1&query={local['lat']},{local['lon']}"
-                        st.markdown(f"""
-                        <div class="pit-card">
-                            <div class="pit-title">{local['icone']} {local['nome']}</div>
-                            <div class="pit-meta">{local['tipo']} • a <strong>{dist_fmt}</strong></div>
-                            <a href="{link_maps}" target="_blank" class="pit-link">🗺️ Abrir no Google Maps</a>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    st.caption("🗺️ Dados fornecidos pelo OpenStreetMap")
-                else:
-                    st.warning("⚠️ Nenhum serviço encontrado.")
+            st.markdown("### 🔍 Busca Instantânea")
+            col_p1, col_p2, col_p3 = st.columns(3)
+            with col_p1:
+                st.markdown(f'<a href="https://www.google.com/maps/search/Posto+de+Combustivel/@{lat},{lon},15z" target="_blank" class="sos-btn">⛽ Postos</a>', unsafe_allow_html=True)
+            with col_p2:
+                st.markdown(f'<a href="https://www.google.com/maps/search/Restaurante/@{lat},{lon},15z" target="_blank" class="sos-btn">🍴 Restaurantes</a>', unsafe_allow_html=True)
+            with col_p3:
+                st.markdown(f'<a href="https://www.google.com/maps/search/Supermercado/@{lat},{lon},15z" target="_blank" class="sos-btn">🏪 Mercados</a>', unsafe_allow_html=True)
 
 with tab6:
     st.markdown("##### 🛠️ SOS Mecânico - Serviços de Emergência")
@@ -779,7 +774,7 @@ with tab6:
     if not GPS_AVAILABLE:
         st.error("⚠️ Biblioteca de GPS não encontrada.")
     else:
-        st.info("📱 Clique nos botões para busca instantânea ou listar locais.")
+        st.info("📱 Clique nos botões abaixo para abrir o Google Maps com a busca já realizada.")
         location_sos = get_geolocation(component_key='get_geo_sos')
 
         if location_sos:
@@ -789,39 +784,10 @@ with tab6:
             st.success(f"📍 Localização: {lat_s:.5f}, {lon_s:.5f}")
             
             # --- BOTÕES DE BUSCA DIRETA GOOGLE MAPS (Solução Instantânea) ---
-            st.markdown("### 🆘 Busca Instantânea (Google Maps)")
             col_g1, col_g2, col_g3 = st.columns(3)
             with col_g1:
-                st.markdown(f'<a href="https://www.google.com/maps/search/oficinas+mecanicas/@{lat_s},{lon_s},14z" target="_blank" class="sos-btn">🔧 Oficinas</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="https://www.google.com/maps/search/Oficina+Mecanica/@{lat_s},{lon_s},15z" target="_blank" class="sos-btn">🔧 Oficinas</a>', unsafe_allow_html=True)
             with col_g2:
-                st.markdown(f'<a href="https://www.google.com/maps/search/borracharia/@{lat_s},{lon_s},14z" target="_blank" class="sos-btn">🔘 Borracharias</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="https://www.google.com/maps/search/Borracharia/@{lat_s},{lon_s},15z" target="_blank" class="sos-btn">🔘 Borracharias</a>', unsafe_allow_html=True)
             with col_g3:
-                st.markdown(f'<a href="https://www.google.com/maps/search/reboque+guincho/@{lat_s},{lon_s},14z" target="_blank" class="sos-btn">🛻 Guinchos</a>', unsafe_allow_html=True)
-            
-            st.divider()
-            
-            # --- LISTA INTERNA DO APP (Solução Secundária - OSM) ---
-            st.markdown("### 📋 Lista no App")
-            if st.button("CARREGAR LISTA INTERNA", use_container_width=True, key="btn_buscar_sos"):
-                with st.spinner("🔍 Consultando lista interna (3km)..."):
-                    # Busca única, raio fixo 3km, timeout maior (25s)
-                    locais_sos = buscar_sos_osm_base(lat_s, lon_s, raio=3000)
-                
-                if locais_sos:
-                    st.success(f"✅ Encontrados **{len(locais_sos)}** serviços em até 3 km")
-                    
-                    for local in locais_sos:
-                        dist_m = int(local['distancia'])
-                        dist_fmt = f"{dist_m} metros" if dist_m < 1000 else f"{dist_m/1000:.1f} km"
-                        link_maps = f"https://www.google.com/maps/search/?api=1&query={local['lat']},{local['lon']}"
-                        
-                        st.markdown(f"""
-                        <div class="pit-card" style="border-left: 5px solid #FF0000;">
-                            <div class="pit-title">{local['icone']} {local['nome']}</div>
-                            <div class="pit-meta">{local['tipo']} • a <strong>{dist_fmt}</strong></div>
-                            <a href="{link_maps}" target="_blank" class="pit-link" style="color: #FF0000;">🗺️ Abrir no Google Maps</a>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    st.caption("🗺️ Dados da lista: OpenStreetMap")
-                else:
-                    st.warning("⚠️ Nenhum serviço encontrado na lista interna (3km). Use os botões acima.")
+                st.markdown(f'<a href="https://www.google.com/maps/search/Guincho/@{lat_s},{lon_s},15z" target="_blank" class="sos-btn">🛻 Guinchos</a>', unsafe_allow_html=True)
