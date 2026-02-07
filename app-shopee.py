@@ -523,7 +523,12 @@ with tab3:
                         buf_c = io.BytesIO()
                         with pd.ExcelWriter(buf_c, engine='openpyxl') as w:
                             res_c.to_excel(w, index=False)
-                        st.download_button("📥 BAIXAR PLANILHA OTIMIZADA", buf_c.getvalue(), "Circuit_Otimizado.xlsx", use_container_width=True)
+                        
+                        # Nova lógica de data
+                        data_hoje = pd.Timestamp.now().strftime('%d-%m-%Y')
+                        nome_arquivo_circuit = f"Circuit_Otimizado_{data_hoje}.xlsx"
+                        
+                        st.download_button("📥 BAIXAR PLANILHA OTIMIZADA", buf_c.getvalue(), nome_arquivo_circuit, use_container_width=True)
                         st.dataframe(res_c, use_container_width=True, hide_index=True)
                     else:
                         st.error("❌ Erro: Colunas necessárias não encontradas.")
