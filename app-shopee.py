@@ -381,8 +381,57 @@ def buscar_com_raio_progressivo(lat, lon, max_tentativas=3):
             if tentativa < len(raios) - 1: time.sleep(2)
     return [], 0
 
+# --- NOVA FUNÇÃO PARA ABA 6 (SOS) ---
+def buscar_sos_osm(lat, lon, raio=2000):
+    try:
+        overpass_url = "https://overpass-api.de/api/interpreter"
+        # Busca Oficinas, Borracharias e Reboques
+        overpass_query = f"""
+        [out:json][timeout:10];
+        (
+          nwr["shop"~"^(car_repair|tyres|motorcycle_repair)$"](around:{raio},{lat},{lon});
+          nwr["craft"~"^(car_repair)$"](around:{raio},{lat},{lon});
+          nwr["name"~"^(Borracharia|Oficina|Reboque|Mecânica|Auto Center)$", i](around:{raio},{lat},{lon});
+        );
+        out center;
+        """
+        response = SESSION.get(overpass_url, params={'data': overpass_query}, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            locais = []
+            for element in data.get('elements', []):
+                tags = element.get('tags', {})
+                nome = tags.get('name', 'Sem Nome')
+                shop = tags.get('shop', '')
+                craft = tags.get('craft', '')
+                nome_lower = nome.lower()
+                
+                # Categorização
+                if 'borracharia' in nome_lower or shop == 'tyres':
+                    tipo_fmt = "🔘 Borracharia"; icone = "🔘"
+                elif 'reboque' in nome_lower:
+                    tipo_fmt = "🛻 Reboque"; icone = "🛻"
+                else:
+                    tipo_fmt = "🔧 Oficina"; icone = "🔧"
+                
+                e_lat, e_lon = None, None
+                if 'lat' in element and 'lon' in element:
+                    e_lat = element.get('lat'); e_lon = element.get('lon')
+                elif 'center' in element:
+                    e_lat = element['center'].get('lat'); e_lon = element['center'].get('lon')
+                
+                if e_lat is None or e_lon is None: continue
+                dist = calcular_distancia_gps(lat, lon, e_lat, e_lon)
+                locais.append({'nome': nome, 'tipo': tipo_fmt, 'icone': icone, 'distancia': dist, 'lat': e_lat, 'lon': e_lon})
+            locais.sort(key=lambda x: x['distancia'])
+            return locais[:15] # Top 15 mais próximos
+        else:
+            return []
+    except Exception:
+        return []
+
 # --- INTERFACE TABS ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "⚡ Circuit Pro", "🧭 Radar", "📍 Pit Stop"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "⚡ Circuit Pro", "🧭 Radar", "📍 Pit Stop", "🛠️ SOS Mecânico"])
 
 with tab1:
     st.markdown("##### 📥 Upload do Romaneio")
@@ -455,6 +504,8 @@ with tab2:
             lista = [c.strip().upper() for c in cod_m.split('\n') if c.strip()]
             if not lista:
                 st.warning("⚠️ Digite pelo menos um código.")
+            elif len(lista) > 6:
+                st.warning("⚠️ Limite excedido: Digite no máximo 6 gaiolas por vez.")
             else:
                 st.session_state.modo_atual = 'multiplas'
                 with st.spinner(f"⚙️ Processando {len(lista)} gaiola(s)..."):
@@ -709,3 +760,42 @@ with tab5:
                     st.caption("🗺️ Dados fornecidos pelo OpenStreetMap")
                 else:
                     st.warning("⚠️ Nenhum serviço encontrado.")
+
+with tab6:
+    st.markdown("##### 🛠️ SOS Mecânico - Serviços de Emergência (2km)")
+    
+    if not GPS_AVAILABLE:
+        st.error("⚠️ Biblioteca de GPS não encontrada.")
+    else:
+        st.info("📱 Clique no botão para buscar oficinas, borracharias e reboques próximos.")
+        location_sos = get_geolocation(component_key='get_geo_sos')
+
+        if location_sos:
+            lat_s = location_sos['coords']['latitude']
+            lon_s = location_sos['coords']['longitude']
+            
+            st.success(f"📍 Localização: {lat_s:.5f}, {lon_s:.5f}")
+            
+            if st.button("🆘 BUSCAR SOCORRO", use_container_width=True, key="btn_buscar_sos"):
+                with st.spinner("🔍 Buscando socorro mecânico..."):
+                    # Busca fixa em 2km (2000m)
+                    locais_sos = buscar_sos_osm(lat_s, lon_s, raio=2000)
+                
+                if locais_sos:
+                    st.success(f"✅ Encontrados **{len(locais_sos)}** serviços em até 2 km")
+                    
+                    for local in locais_sos:
+                        dist_m = int(local['distancia'])
+                        dist_fmt = f"{dist_m} metros" if dist_m < 1000 else f"{dist_m/1000:.1f} km"
+                        link_maps = f"https://www.google.com/maps/search/?api=1&query={local['lat']},{local['lon']}"
+                        
+                        st.markdown(f"""
+                        <div class="pit-card" style="border-left: 5px solid #FF0000;">
+                            <div class="pit-title">{local['icone']} {local['nome']}</div>
+                            <div class="pit-meta">{local['tipo']} • a <strong>{dist_fmt}</strong></div>
+                            <a href="{link_maps}" target="_blank" class="pit-link" style="color: #FF0000;">🗺️ Abrir no Google Maps</a>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    st.caption("🗺️ Dados fornecidos pelo OpenStreetMap")
+                else:
+                    st.warning("⚠️ Nenhuma oficina, borracharia ou reboque encontrado em 2km.")
