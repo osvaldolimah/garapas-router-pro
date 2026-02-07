@@ -349,21 +349,49 @@ def carregar_romaneio_completo_otimizado(arquivo_bytes: bytes) -> Optional[pd.Da
     MUITO mais rápido que ler o Excel múltiplas vezes.
     """
     try:
-        # Tenta detectar cabeçalho automaticamente
-        df = pd.read_excel(io.BytesIO(arquivo_bytes), header=0, engine='openpyxl')
+        logger.info("📊 Iniciando carregamento do romaneio completo...")
         
-        # Normaliza nomes de colunas
+        # Tenta carregar com openpyxl primeiro
+        try:
+            df = pd.read_excel(io.BytesIO(arquivo_bytes), header=0, engine='openpyxl')
+            logger.info(f"✅ Carregado com openpyxl: {df.shape}")
+        except Exception as e1:
+            logger.warning(f"Falha com openpyxl: {e1}, tentando sem engine...")
+            # Fallback sem especificar engine
+            df = pd.read_excel(io.BytesIO(arquivo_bytes), header=0)
+            logger.info(f"✅ Carregado sem engine: {df.shape}")
+        
+        # Verifica se DataFrame está vazio
+        if df.empty:
+            logger.error("❌ DataFrame carregado está vazio")
+            return None
+        
+        # Normaliza nomes de colunas (remove espaços, uppercase)
         df.columns = [str(c).strip().upper() for c in df.columns]
+        logger.info(f"📋 Colunas encontradas: {list(df.columns)}")
         
         # Verifica se tem as colunas necessárias
-        if 'GAIOLA' in df.columns and 'BAIRRO' in df.columns:
-            logger.info(f"✅ Romaneio carregado: {len(df)} linhas, {df['GAIOLA'].nunique()} gaiolas")
-            return df
-        else:
-            logger.warning("Colunas GAIOLA ou BAIRRO não encontradas")
+        if 'GAIOLA' not in df.columns:
+            logger.error(f"❌ Coluna GAIOLA não encontrada. Colunas: {list(df.columns)}")
             return None
+            
+        if 'BAIRRO' not in df.columns:
+            logger.error(f"❌ Coluna BAIRRO não encontrada. Colunas: {list(df.columns)}")
+            return None
+        
+        # Valida dados
+        gaiolas_unicas = df['GAIOLA'].nunique()
+        bairros_unicos = df['BAIRRO'].nunique()
+        
+        logger.info(f"✅ Romaneio carregado com sucesso!")
+        logger.info(f"   📦 Linhas: {len(df):,}")
+        logger.info(f"   🚚 Gaiolas: {gaiolas_unicas}")
+        logger.info(f"   🏘️ Bairros: {bairros_unicos}")
+        
+        return df
+        
     except Exception as e:
-        logger.exception("Erro ao carregar romaneio completo")
+        logger.exception(f"❌ ERRO CRÍTICO ao carregar romaneio: {e}")
         return None
 
 def radar_buscar_gaiolas_ultra_rapido(df_romaneio: pd.DataFrame, bairros_buscados: List[str]) -> pd.DataFrame:
@@ -459,20 +487,32 @@ with tab1:
                 if st.session_state.df_cache is None:
                     with st.spinner("📊 Carregando romaneio..."):
                         try:
+                            # Carrega cache principal
                             st.session_state.df_cache = pd.read_excel(io.BytesIO(raw_bytes), engine='openpyxl')
-                            # Carrega romaneio completo para o Radar JUNTO com o cache principal
-                            st.session_state.df_romaneio_completo = carregar_romaneio_completo_otimizado(raw_bytes)
-                            logger.info(f"✅ Romaneio carregado: {len(st.session_state.df_romaneio_completo)} linhas")
+                            logger.info("✅ df_cache carregado com sucesso")
                         except Exception as e:
-                            logger.exception("Erro ao carregar com openpyxl, tentando fallback")
+                            logger.warning(f"Falha com openpyxl: {e}, tentando fallback...")
                             st.session_state.df_cache = pd.read_excel(io.BytesIO(raw_bytes))
-                            # Tenta carregar para o Radar mesmo com fallback
-                            try:
-                                st.session_state.df_romaneio_completo = carregar_romaneio_completo_otimizado(raw_bytes)
-                                logger.info(f"✅ Romaneio carregado (fallback): {len(st.session_state.df_romaneio_completo)} linhas")
-                            except Exception as e2:
-                                logger.exception("Erro ao carregar romaneio completo")
-                                st.error("⚠️ Erro ao carregar romaneio para o Radar. Algumas funcionalidades podem não funcionar.")
+                            logger.info("✅ df_cache carregado com fallback")
+                        
+                        # Carrega romaneio completo para o Radar
+                        try:
+                            st.session_state.df_romaneio_completo = carregar_romaneio_completo_otimizado(raw_bytes)
+                            
+                            if st.session_state.df_romaneio_completo is not None:
+                                num_linhas = len(st.session_state.df_romaneio_completo)
+                                num_gaiolas = st.session_state.df_romaneio_completo['GAIOLA'].nunique()
+                                logger.info(f"✅ Romaneio completo carregado: {num_linhas} linhas, {num_gaiolas} gaiolas")
+                                # Mostra feedback visual discreto
+                                st.toast(f"✅ Radar ativado: {num_gaiolas} gaiolas disponíveis", icon="🧭")
+                            else:
+                                logger.error("❌ carregar_romaneio_completo_otimizado retornou None")
+                                st.warning("⚠️ Radar de Bairros: Verifique o formato do arquivo. Aba 5 pode não funcionar.")
+                                
+                        except Exception as e2:
+                            logger.exception(f"❌ ERRO ao carregar romaneio completo: {e2}")
+                            st.error(f"⚠️ Erro ao carregar Radar: {str(e2)}")
+                            st.info("💡 O app funcionará normalmente, mas a Aba 'Radar' estará indisponível.")
                 
                 st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Filtre e gere a rota detalhada.</div>', unsafe_allow_html=True)
                 g_unica = st.text_input("📦 Código da Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
@@ -649,28 +689,48 @@ with tab5:
         st.warning("⚠️ **Romaneio não carregado.**")
         st.info("📤 **Passo 1:** Vá para a aba **'Gaiola Única'** e faça o upload do romaneio primeiro.")
         
-        # Debug info (opcional - remover em produção)
-        if st.checkbox("🔍 Mostrar informações de debug", key="debug_radar"):
-            st.write(f"**Status do cache:**")
-            st.write(f"- df_cache: {'✅ Carregado' if st.session_state.df_cache is not None else '❌ Vazio'}")
-            st.write(f"- df_romaneio_completo: {'✅ Carregado' if st.session_state.df_romaneio_completo is not None else '❌ Vazio'}")
-            st.write(f"- up_padrao_bytes: {'✅ Presente' if st.session_state.get('up_padrao_bytes') is not None else '❌ Vazio'}")
+        # Debug info detalhado
+        with st.expander("🔍 Informações de Diagnóstico"):
+            st.write("**Status do Sistema:**")
+            st.write(f"- `df_cache`: {'✅ Carregado' if st.session_state.df_cache is not None else '❌ Vazio'}")
+            st.write(f"- `df_romaneio_completo`: {'✅ Carregado' if st.session_state.df_romaneio_completo is not None else '❌ Vazio'}")
+            st.write(f"- `up_padrao_bytes`: {'✅ Presente' if st.session_state.get('up_padrao_bytes') is not None else '❌ Vazio'}")
             
-            # Botão para forçar recarga
+            # Se tem bytes mas não tem DataFrame
             if st.session_state.get('up_padrao_bytes') is not None:
-                if st.button("🔄 Forçar Recarga do Romaneio"):
+                st.warning("⚠️ Arquivo foi enviado, mas DataFrame não foi criado.")
+                
+                if st.button("🔄 Tentar Recarregar Romaneio", key="reload_romaneio"):
                     with st.spinner("Recarregando..."):
                         try:
-                            st.session_state.df_romaneio_completo = carregar_romaneio_completo_otimizado(
-                                st.session_state.up_padrao_bytes
-                            )
-                            st.success("✅ Romaneio recarregado com sucesso!")
-                            st.rerun()
+                            resultado = carregar_romaneio_completo_otimizado(st.session_state.up_padrao_bytes)
+                            
+                            if resultado is not None:
+                                st.session_state.df_romaneio_completo = resultado
+                                st.success(f"✅ Sucesso! Carregadas {len(resultado):,} linhas")
+                                st.info("🔄 Recarregue a página (F5) para atualizar a interface")
+                            else:
+                                st.error("❌ Função retornou None. Verifique o formato do arquivo.")
+                                st.info("💡 **Possíveis causas:**\n- Arquivo não tem colunas GAIOLA ou BAIRRO\n- Formato do Excel está corrompido\n- Arquivo não é um romaneio válido")
                         except Exception as e:
-                            st.error(f"Erro ao recarregar: {e}")
+                            st.error(f"❌ Erro ao recarregar: {e}")
+                            st.code(str(e))
+            else:
+                st.info("💡 Nenhum arquivo foi enviado ainda. Vá para Aba 1 e faça o upload.")
+    
     else:
-        # Mostra status do romaneio carregado
-        st.success(f"✅ **Romaneio carregado:** {len(st.session_state.df_romaneio_completo):,} linhas, {st.session_state.df_romaneio_completo['GAIOLA'].nunique()} gaiolas únicas")
+        # DataFrame carregado com sucesso - verifica saúde
+        try:
+            num_linhas = len(st.session_state.df_romaneio_completo)
+            num_gaiolas = st.session_state.df_romaneio_completo['GAIOLA'].nunique()
+            num_bairros = st.session_state.df_romaneio_completo['BAIRRO'].nunique()
+            
+            st.success(f"✅ **Romaneio carregado:** {num_linhas:,} linhas, {num_gaiolas} gaiolas, {num_bairros} bairros")
+            
+        except Exception as e:
+            st.error(f"❌ DataFrame corrompido: {e}")
+            st.session_state.df_romaneio_completo = None
+            st.stop()
         
         # Inputs
         bairros_txt = st.text_area(
