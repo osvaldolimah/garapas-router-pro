@@ -398,6 +398,11 @@ def radar_buscar_gaiolas_ultra_rapido(df_romaneio: pd.DataFrame, bairros_buscado
     """
     Versão ULTRA OTIMIZADA do Radar.
     
+    CONCEITO CORRETO DE "PARADAS REAIS":
+    - Paradas Reais = Endereços únicos agrupados por (RUA + NÚMERO)
+    - Mesma lógica da Aba 1: extrair_base_endereco()
+    - NÃO usar a coluna PARADAS do romaneio!
+    
     Melhorias implementadas:
     1. Usa DataFrame em memória (sem ler Excel múltiplas vezes)
     2. Operações vetorizadas do Pandas (muito mais rápido que loops)
@@ -421,32 +426,43 @@ def radar_buscar_gaiolas_ultra_rapido(df_romaneio: pd.DataFrame, bairros_buscado
     if df_filtrado.empty:
         return pd.DataFrame()
     
-    # 4. Agrupa por gaiola para calcular métricas (groupby nativo = super rápido)
-    resultado = df_filtrado.groupby('GAIOLA').agg({
-        'BAIRRO': lambda x: ', '.join(sorted(set(x.str.title()))),  # Lista bairros únicos
-        'GAIOLA': 'count',  # Total de pacotes
-        'PARADAS': 'max'  # Última parada (assumindo sequencial)
-    }).rename(columns={'GAIOLA': 'Pacotes', 'PARADAS': 'Paradas_Reais'}).reset_index()
+    # 4. ✅ CONCEITO CORRETO: Cria chave de agrupamento (Rua + Número)
+    # Mesma lógica da Aba 1!
+    if 'ENDEREÇO' in df_filtrado.columns:
+        df_filtrado['CHAVE_STOP'] = df_filtrado['ENDEREÇO'].apply(extrair_base_endereco)
+    else:
+        # Fallback se não tiver coluna ENDEREÇO
+        return pd.DataFrame()
     
-    # 5. Calcula métricas adicionais (vetorizado)
-    resultado['Economia'] = resultado['Pacotes'] - resultado['Paradas_Reais']
-    resultado['Economia_Pct'] = (resultado['Economia'] / resultado['Pacotes'] * 100).round(1)
-    resultado['Economia_Fmt'] = resultado.apply(
+    # 5. Agrupa por gaiola e calcula métricas
+    resultado_agregado = df_filtrado.groupby('GAIOLA').agg({
+        'BAIRRO': lambda x: ', '.join(sorted(set(x.str.title()))),  # Lista bairros únicos
+        'GAIOLA': 'count',  # Total de pacotes (cada linha = 1 pacote)
+        'CHAVE_STOP': 'nunique'  # ✅ Paradas REAIS (endereços únicos por Rua+Número)
+    }).rename(columns={
+        'GAIOLA': 'Pacotes', 
+        'CHAVE_STOP': 'Paradas_Reais'
+    }).reset_index()
+    
+    # 6. Calcula métricas adicionais (vetorizado)
+    resultado_agregado['Economia'] = resultado_agregado['Pacotes'] - resultado_agregado['Paradas_Reais']
+    resultado_agregado['Economia_Pct'] = (resultado_agregado['Economia'] / resultado_agregado['Pacotes'] * 100).round(1)
+    resultado_agregado['Economia_Fmt'] = resultado_agregado.apply(
         lambda row: f"{int(row['Economia'])} ({int(row['Economia_Pct'])}%)", 
         axis=1
     )
     
-    # 6. Conta comércios (vetorizado)
+    # 7. Conta comércios (vetorizado)
     if 'ENDEREÇO' in df_filtrado.columns:
         comercios_por_gaiola = df_filtrado.groupby('GAIOLA')['ENDEREÇO'].apply(
             lambda x: x.apply(identificar_comercio).eq("🏪 Comércio").sum()
         ).to_dict()
-        resultado['Comércios'] = resultado['GAIOLA'].map(comercios_por_gaiola).fillna(0).astype(int)
+        resultado_agregado['Comércios'] = resultado_agregado['GAIOLA'].map(comercios_por_gaiola).fillna(0).astype(int)
     else:
-        resultado['Comércios'] = 0
+        resultado_agregado['Comércios'] = 0
     
-    # 7. Formata saída final
-    resultado_final = resultado[[
+    # 8. Formata saída final
+    resultado_final = resultado_agregado[[
         'GAIOLA', 
         'BAIRRO', 
         'Pacotes', 
@@ -458,7 +474,7 @@ def radar_buscar_gaiolas_ultra_rapido(df_romaneio: pd.DataFrame, bairros_buscado
         'Economia_Fmt': 'Economia'
     })
     
-    # 8. Ordena por número de pacotes (desc)
+    # 9. Ordena por número de pacotes (desc)
     resultado_final = resultado_final.sort_values('Pacotes', ascending=False)
     
     return resultado_final
