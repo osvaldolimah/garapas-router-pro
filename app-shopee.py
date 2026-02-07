@@ -382,7 +382,7 @@ def buscar_com_raio_progressivo(lat, lon, max_tentativas=3):
     return [], 0
 
 # --- INTERFACE TABS ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "⚡ Circuit Pro", "📍 Pit Stop", "🧭 Radar"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🎯 Gaiola Única", "📊 Múltiplas Gaiolas", "⚡ Circuit Pro", "🧭 Radar", "📍 Pit Stop"])
 
 with tab1:
     st.markdown("##### 📥 Upload do Romaneio")
@@ -535,46 +535,8 @@ with tab3:
         except Exception:
             st.error("Erro ao processar arquivo.")
 
+# --- ABA 4: RADAR DE BAIRROS ---
 with tab4:
-    st.markdown("##### 📍 Pit Stop - Serviços Próximos")
-    
-    if not GPS_AVAILABLE:
-        st.error("⚠️ Biblioteca de GPS não encontrada. Adicione 'streamlit-js-eval' ao requirements.txt.")
-    else:
-        st.info("📱 Permita o acesso à localização do navegador.")
-        location = get_geolocation(component_key='get_geo')
-
-        if location:
-            lat = location['coords']['latitude']
-            lon = location['coords']['longitude']
-            
-            st.success(f"📍 Localização encontrada!")
-            
-            if st.button("🔍 BUSCAR SERVIÇOS PRÓXIMOS", use_container_width=True, key="btn_buscar_pit"):
-                with st.spinner("🔍 Consultando mapa..."):
-                    locais_proximos, raio_usado = buscar_com_raio_progressivo(lat, lon)
-                
-                if locais_proximos:
-                    raio_km = raio_usado / 1000
-                    st.success(f"✅ Encontrados **{len(locais_proximos)}** serviços em até **{raio_km:.1f} km**")
-                    
-                    for local in locais_proximos:
-                        dist_m = int(local['distancia'])
-                        dist_fmt = f"{dist_m} metros" if dist_m < 1000 else f"{dist_m/1000:.1f} km"
-                        link_maps = f"https://www.google.com/maps/search/?api=1&query={local['lat']},{local['lon']}"
-                        st.markdown(f"""
-                        <div class="pit-card">
-                            <div class="pit-title">{local['icone']} {local['nome']}</div>
-                            <div class="pit-meta">{local['tipo']} • a <strong>{dist_fmt}</strong></div>
-                            <a href="{link_maps}" target="_blank" class="pit-link">🗺️ Abrir no Google Maps</a>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    st.caption("🗺️ Dados fornecidos pelo OpenStreetMap")
-                else:
-                    st.warning("⚠️ Nenhum serviço encontrado.")
-
-# --- ABA 5: RADAR DE BAIRROS ---
-with tab5:
     st.markdown("##### 🧭 Radar de Bairros")
     st.markdown('<div class="info-box"><strong>🎯 Estratégia:</strong> Descubra quais gaiolas passam pelos bairros que você prefere.</div>', unsafe_allow_html=True)
     
@@ -709,3 +671,41 @@ with tab5:
                     except Exception as e:
                         logger.exception("Erro no Radar de Bairros")
                         st.error("Erro ao processar. Verifique o arquivo.")
+
+with tab5:
+    st.markdown("##### 📍 Pit Stop - Serviços Próximos")
+    
+    if not GPS_AVAILABLE:
+        st.error("⚠️ Biblioteca de GPS não encontrada. Adicione 'streamlit-js-eval' ao requirements.txt.")
+    else:
+        st.info("📱 Permita o acesso à localização do navegador.")
+        location = get_geolocation(component_key='get_geo')
+
+        if location:
+            lat = location['coords']['latitude']
+            lon = location['coords']['longitude']
+            
+            st.success(f"📍 Localização encontrada!")
+            
+            if st.button("🔍 BUSCAR SERVIÇOS PRÓXIMOS", use_container_width=True, key="btn_buscar_pit"):
+                with st.spinner("🔍 Consultando mapa..."):
+                    locais_proximos, raio_usado = buscar_com_raio_progressivo(lat, lon)
+                
+                if locais_proximos:
+                    raio_km = raio_usado / 1000
+                    st.success(f"✅ Encontrados **{len(locais_proximos)}** serviços em até **{raio_km:.1f} km**")
+                    
+                    for local in locais_proximos:
+                        dist_m = int(local['distancia'])
+                        dist_fmt = f"{dist_m} metros" if dist_m < 1000 else f"{dist_m/1000:.1f} km"
+                        link_maps = f"https://www.google.com/maps/search/?api=1&query={local['lat']},{local['lon']}"
+                        st.markdown(f"""
+                        <div class="pit-card">
+                            <div class="pit-title">{local['icone']} {local['nome']}</div>
+                            <div class="pit-meta">{local['tipo']} • a <strong>{dist_fmt}</strong></div>
+                            <a href="{link_maps}" target="_blank" class="pit-link">🗺️ Abrir no Google Maps</a>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    st.caption("🗺️ Dados fornecidos pelo OpenStreetMap")
+                else:
+                    st.warning("⚠️ Nenhum serviço encontrado.")
