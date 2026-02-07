@@ -448,21 +448,31 @@ with tab1:
             if len(raw_bytes) > MAX_UPLOAD_BYTES:
                 st.error(f"Arquivo muito grande. Limite {MAX_UPLOAD_BYTES // (1024*1024)} MB.")
             else:
+                # Invalida cache se arquivo mudou
                 if st.session_state.get('up_padrao_bytes') != raw_bytes:
                     st.session_state.up_padrao_bytes = raw_bytes
                     st.session_state.df_cache = None
                     st.session_state.df_romaneio_completo = None  # Limpa cache do radar
+                    logger.info("🔄 Novo arquivo detectado - cache invalidado")
                 
+                # Carrega df_cache se necessário
                 if st.session_state.df_cache is None:
                     with st.spinner("📊 Carregando romaneio..."):
                         try:
                             st.session_state.df_cache = pd.read_excel(io.BytesIO(raw_bytes), engine='openpyxl')
-                        except Exception:
+                            # Carrega romaneio completo para o Radar JUNTO com o cache principal
+                            st.session_state.df_romaneio_completo = carregar_romaneio_completo_otimizado(raw_bytes)
+                            logger.info(f"✅ Romaneio carregado: {len(st.session_state.df_romaneio_completo)} linhas")
+                        except Exception as e:
+                            logger.exception("Erro ao carregar com openpyxl, tentando fallback")
                             st.session_state.df_cache = pd.read_excel(io.BytesIO(raw_bytes))
-                
-                # Carrega romaneio completo para o Radar (em background)
-                if st.session_state.df_romaneio_completo is None:
-                    st.session_state.df_romaneio_completo = carregar_romaneio_completo_otimizado(raw_bytes)
+                            # Tenta carregar para o Radar mesmo com fallback
+                            try:
+                                st.session_state.df_romaneio_completo = carregar_romaneio_completo_otimizado(raw_bytes)
+                                logger.info(f"✅ Romaneio carregado (fallback): {len(st.session_state.df_romaneio_completo)} linhas")
+                            except Exception as e2:
+                                logger.exception("Erro ao carregar romaneio completo")
+                                st.error("⚠️ Erro ao carregar romaneio para o Radar. Algumas funcionalidades podem não funcionar.")
                 
                 st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Filtre e gere a rota detalhada.</div>', unsafe_allow_html=True)
                 g_unica = st.text_input("📦 Código da Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
@@ -634,63 +644,89 @@ with tab5:
     st.markdown("##### 🧭 Radar de Bairros - ULTRA RÁPIDO ⚡")
     st.markdown('<div class="info-box"><strong>🎯 Estratégia:</strong> Descubra instantaneamente quais gaiolas passam pelos bairros que você prefere.</div>', unsafe_allow_html=True)
     
-    # Inputs
-    bairros_txt = st.text_area(
-        "Digite os bairros (separados por vírgula)", 
-        placeholder="Ex: Meireles, Aldeota, Messejana, Centro", 
-        height=80,
-        key="radar_bairros"
-    )
-    
-    if st.button("🔍 RASTREAR GAIOLAS", key="btn_radar", use_container_width=True):
-        if not bairros_txt:
-            st.warning("⚠️ Digite pelo menos um bairro.")
-        elif st.session_state.df_romaneio_completo is None:
-            st.warning("⚠️ Faça o upload do romaneio na Aba 1 primeiro.")
-        else:
-            # Processa bairros
-            bairros_lista = [b.strip() for b in bairros_txt.split(',') if b.strip()]
+    # Verifica se romaneio foi carregado
+    if st.session_state.df_romaneio_completo is None:
+        st.warning("⚠️ **Romaneio não carregado.**")
+        st.info("📤 **Passo 1:** Vá para a aba **'Gaiola Única'** e faça o upload do romaneio primeiro.")
+        
+        # Debug info (opcional - remover em produção)
+        if st.checkbox("🔍 Mostrar informações de debug", key="debug_radar"):
+            st.write(f"**Status do cache:**")
+            st.write(f"- df_cache: {'✅ Carregado' if st.session_state.df_cache is not None else '❌ Vazio'}")
+            st.write(f"- df_romaneio_completo: {'✅ Carregado' if st.session_state.df_romaneio_completo is not None else '❌ Vazio'}")
+            st.write(f"- up_padrao_bytes: {'✅ Presente' if st.session_state.get('up_padrao_bytes') is not None else '❌ Vazio'}")
             
-            # Busca ultra rápida
-            with st.spinner("⚡ Processando... (otimizado)"):
-                start_time = time.time()
-                
-                resultado_df = radar_buscar_gaiolas_ultra_rapido(
-                    st.session_state.df_romaneio_completo,
-                    bairros_lista
-                )
-                
-                tempo_decorrido = time.time() - start_time
-            
-            # Exibe resultados
-            if not resultado_df.empty:
-                st.success(f"✅ Encontradas **{len(resultado_df)}** gaiolas! ⚡ Processado em {tempo_decorrido:.2f}s")
-                
-                # Métricas resumidas
-                col1, col2, col3 = st.columns(3)
-                col1.metric("🚚 Gaiolas", len(resultado_df))
-                col2.metric("📦 Total Pacotes", resultado_df['Pacotes'].sum())
-                col3.metric("📍 Total Paradas", resultado_df['Paradas_Reais'].sum())
-                
-                # Tabela de resultados
-                st.dataframe(
-                    resultado_df,
-                    use_container_width=True,
-                    hide_index=True,
-                    height=400
-                )
-                
-                # Download opcional
-                buf_radar = io.BytesIO()
-                with pd.ExcelWriter(buf_radar, engine='openpyxl') as w:
-                    resultado_df.to_excel(w, index=False, sheet_name='Radar')
-                
-                st.download_button(
-                    "📥 BAIXAR RESULTADO DO RADAR",
-                    buf_radar.getvalue(),
-                    "Radar_Bairros.xlsx",
-                    use_container_width=True
-                )
+            # Botão para forçar recarga
+            if st.session_state.get('up_padrao_bytes') is not None:
+                if st.button("🔄 Forçar Recarga do Romaneio"):
+                    with st.spinner("Recarregando..."):
+                        try:
+                            st.session_state.df_romaneio_completo = carregar_romaneio_completo_otimizado(
+                                st.session_state.up_padrao_bytes
+                            )
+                            st.success("✅ Romaneio recarregado com sucesso!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao recarregar: {e}")
+    else:
+        # Mostra status do romaneio carregado
+        st.success(f"✅ **Romaneio carregado:** {len(st.session_state.df_romaneio_completo):,} linhas, {st.session_state.df_romaneio_completo['GAIOLA'].nunique()} gaiolas únicas")
+        
+        # Inputs
+        bairros_txt = st.text_area(
+            "Digite os bairros (separados por vírgula)", 
+            placeholder="Ex: Meireles, Aldeota, Messejana, Centro", 
+            height=80,
+            key="radar_bairros"
+        )
+        
+        if st.button("🔍 RASTREAR GAIOLAS", key="btn_radar", use_container_width=True):
+            if not bairros_txt:
+                st.warning("⚠️ Digite pelo menos um bairro.")
             else:
-                st.warning("❌ Nenhuma gaiola encontrada para esses bairros.")
-                st.info("💡 **Dicas:**\n- Verifique a ortografia dos bairros\n- Tente usar apenas parte do nome (ex: 'Meire' ao invés de 'Meireles')")
+                # Processa bairros
+                bairros_lista = [b.strip() for b in bairros_txt.split(',') if b.strip()]
+                
+                # Busca ultra rápida
+                with st.spinner("⚡ Processando... (otimizado)"):
+                    start_time = time.time()
+                    
+                    resultado_df = radar_buscar_gaiolas_ultra_rapido(
+                        st.session_state.df_romaneio_completo,
+                        bairros_lista
+                    )
+                    
+                    tempo_decorrido = time.time() - start_time
+                
+                # Exibe resultados
+                if not resultado_df.empty:
+                    st.success(f"✅ Encontradas **{len(resultado_df)}** gaiolas! ⚡ Processado em {tempo_decorrido:.2f}s")
+                    
+                    # Métricas resumidas
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("🚚 Gaiolas", len(resultado_df))
+                    col2.metric("📦 Total Pacotes", resultado_df['Pacotes'].sum())
+                    col3.metric("📍 Total Paradas", resultado_df['Paradas_Reais'].sum())
+                    
+                    # Tabela de resultados
+                    st.dataframe(
+                        resultado_df,
+                        use_container_width=True,
+                        hide_index=True,
+                        height=400
+                    )
+                    
+                    # Download opcional
+                    buf_radar = io.BytesIO()
+                    with pd.ExcelWriter(buf_radar, engine='openpyxl') as w:
+                        resultado_df.to_excel(w, index=False, sheet_name='Radar')
+                    
+                    st.download_button(
+                        "📥 BAIXAR RESULTADO DO RADAR",
+                        buf_radar.getvalue(),
+                        "Radar_Bairros.xlsx",
+                        use_container_width=True
+                    )
+                else:
+                    st.warning("❌ Nenhuma gaiola encontrada para esses bairros.")
+                    st.info("💡 **Dicas:**\n- Verifique a ortografia dos bairros\n- Tente usar apenas parte do nome (ex: 'Meire' ao invés de 'Meireles')")
