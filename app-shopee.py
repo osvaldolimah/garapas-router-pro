@@ -20,12 +20,14 @@ if not logger.handlers:
     logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
-# --- SESSÃO DE REQUESTS COM RETRY (HTTPS) ---
+# --- SESSÃO DE REQUESTS COM RETRY E HEADERS ---
 SESSION = requests.Session()
 retries = Retry(total=3, backoff_factor=0.6, status_forcelist=[429, 500, 502, 503, 504])
 adapter = HTTPAdapter(max_retries=retries)
 SESSION.mount("https://", adapter)
 SESSION.mount("http://", adapter)
+# Adiciona User-Agent para evitar bloqueio da API OSM
+SESSION.headers.update({'User-Agent': 'FiltroRotasApp/1.0 (Streamlit)'})
 
 # Tenta importar a lib de GPS
 try:
@@ -324,14 +326,14 @@ def buscar_locais_osm_base(lat, lon, raio):
     try:
         overpass_url = "https://overpass-api.de/api/interpreter"
         overpass_query = f"""
-        [out:json][timeout:10];
+        [out:json][timeout:25];
         (
           nwr["amenity"~"^(restaurant|fuel|cafe|fast_food)$"](around:{raio},{lat},{lon});
           nwr["shop"~"^(convenience|supermarket)$"](around:{raio},{lat},{lon});
         );
         out center;
         """
-        response = SESSION.get(overpass_url, params={'data': overpass_query}, timeout=10)
+        response = SESSION.get(overpass_url, params={'data': overpass_query}, timeout=25)
         if response.status_code == 200:
             data = response.json()
             locais = []
@@ -389,9 +391,9 @@ def buscar_sos_osm_cached(lat_round, lon_round, raio):
 def buscar_sos_osm_base(lat, lon, raio):
     try:
         overpass_url = "https://overpass-api.de/api/interpreter"
-        # Query mais robusta: sem âncoras ^$ no nome, para pegar nomes compostos
+        # Timeout aumentado para 25s
         overpass_query = f"""
-        [out:json][timeout:10];
+        [out:json][timeout:25];
         (
           nwr["shop"~"car_repair|tyres|motorcycle_repair"](around:{raio},{lat},{lon});
           nwr["craft"~"car_repair"](around:{raio},{lat},{lon});
@@ -399,7 +401,7 @@ def buscar_sos_osm_base(lat, lon, raio):
         );
         out center;
         """
-        response = SESSION.get(overpass_url, params={'data': overpass_query}, timeout=10)
+        response = SESSION.get(overpass_url, params={'data': overpass_query}, timeout=25)
         if response.status_code == 200:
             data = response.json()
             locais = []
@@ -434,7 +436,7 @@ def buscar_sos_osm_base(lat, lon, raio):
         return []
 
 def buscar_sos_progressivo(lat, lon):
-    # Raios maiores para SOS: 2km -> 5km -> 10km
+    # Raios maiores para SOS e tentativas progressivas
     lat_r = round(lat, 3); lon_r = round(lon, 3)
     raios = [2000, 5000, 10000] 
     for tentativa, raio in enumerate(raios):
@@ -679,7 +681,6 @@ with tab4:
                                     df_match = df[mask]
                                     
                                     # Itera sobre as linhas filtradas para contar
-                                    # (Poderíamos usar value_counts, mas precisamos mapear qual bairro foi achado)
                                     for idx, row in df_match.iterrows():
                                         gaiola = str(row[col_gaiola_idx])
                                         bairro_real = row[col_bairro_idx]
@@ -795,7 +796,6 @@ with tab6:
             
             if st.button("🆘 BUSCAR SOCORRO", use_container_width=True, key="btn_buscar_sos"):
                 with st.spinner("🔍 Buscando socorro mecânico..."):
-                    # Busca progressiva para SOS também (2km -> 5km -> 10km)
                     locais_sos, raio_sos = buscar_sos_progressivo(lat_s, lon_s)
                 
                 if locais_sos:
