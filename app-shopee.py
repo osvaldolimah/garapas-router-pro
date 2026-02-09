@@ -482,6 +482,14 @@ with tab1:
                         except Exception:
                             st.session_state.df_cache = pd.read_excel(io.BytesIO(raw_bytes))
                 
+                # Nova funcionalidade: Volumetria
+                try:
+                    abas_vol = carregar_abas_excel(raw_bytes)
+                    total_vol = sum(max(0, len(d) - 1) for d in abas_vol.values())
+                    st.markdown(f'<div class="success-box"><strong>📦 Volumetria Total:</strong> {total_vol} pacotes</div>', unsafe_allow_html=True)
+                except Exception:
+                    pass
+
                 st.markdown('<div class="info-box"><strong>💡 Modo Gaiola Única:</strong> Filtre e gere a rota detalhada.</div>', unsafe_allow_html=True)
                 g_unica = st.text_input("📦 Código da Gaiola", placeholder="Ex: B-50", key="gui_tab1").strip().upper()
                 
@@ -765,14 +773,19 @@ with tab5:
             
             st.success(f"📍 Localização encontrada!")
             
-            st.markdown("### 🔍 Busca Instantânea")
+            # --- BOTÕES DE BUSCA DIRETA GOOGLE MAPS (Solução Instantânea) ---
+            st.markdown("### 🔍 Busca Instantânea (Google Maps)")
             col_p1, col_p2, col_p3 = st.columns(3)
+            
+            # Links robustos para busca no Google Maps (Query + Coordenadas)
             with col_p1:
                 st.markdown(f'<a href="https://www.google.com/maps/search/Posto+de+Combustivel/@{lat},{lon},15z" target="_blank" class="sos-btn">⛽ Postos</a>', unsafe_allow_html=True)
             with col_p2:
                 st.markdown(f'<a href="https://www.google.com/maps/search/Restaurante/@{lat},{lon},15z" target="_blank" class="sos-btn">🍴 Restaurantes</a>', unsafe_allow_html=True)
             with col_p3:
                 st.markdown(f'<a href="https://www.google.com/maps/search/Supermercado/@{lat},{lon},15z" target="_blank" class="sos-btn">🏪 Mercados</a>', unsafe_allow_html=True)
+            
+            st.caption("🗺️ Abre diretamente o app do Google Maps")
 
 with tab6:
     st.markdown("##### 🛠️ SOS Mecânico - Serviços de Emergência")
@@ -792,8 +805,8 @@ with tab6:
             # --- BOTÕES DE BUSCA DIRETA GOOGLE MAPS (Solução Instantânea) ---
             col_g1, col_g2, col_g3 = st.columns(3)
             with col_g1:
-                st.markdown(f'<a href="https://www.google.com/maps/search/Oficina+Mecanica/@{lat_s},{lon_s},15z" target="_blank" class="sos-btn">🔧 Oficinas</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="https://www.google.com/maps/search/Oficina+Mecânica/@{lat_s},{lon_s},15z" target="_blank" class="sos-btn">🔧 Oficinas</a>', unsafe_allow_html=True)
             with col_g2:
                 st.markdown(f'<a href="https://www.google.com/maps/search/Borracharia/@{lat_s},{lon_s},15z" target="_blank" class="sos-btn">🔘 Borracharias</a>', unsafe_allow_html=True)
             with col_g3:
-                st.markdown(f'<a href="https://www.google.com/maps/search/Guincho/@{lat_s},{lon_s},15z" target="_blank" class="sos-btn">🛻 Guinchos</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="https://www.google.com/maps/search/Serviço+de+Guincho/@{lat_s},{lon_s},15z" target="_blank" class="sos-btn">🛻 Guinchos</a>', unsafe_allow_html=True)
