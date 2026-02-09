@@ -129,7 +129,7 @@ st.markdown("""
     .pit-meta { color: #666; font-size: 0.9rem; }
     .pit-link { text-decoration: none; color: #2563EB; font-weight: bold; font-size: 0.9rem; }
     
-    /* Botões de SOS - Estilo Link */
+    /* Botões de SOS/PitStop - Estilo Link */
     .sos-btn {
         display: block; width: 100%; padding: 15px; margin: 5px 0;
         background-color: white; border: 2px solid #e0e0e0; border-radius: 10px;
@@ -357,8 +357,6 @@ def buscar_locais_osm_base(lat, lon, raio):
                 nome = tags.get('name', 'Sem Nome')
                 amenity = tags.get('amenity', '')
                 shop = tags.get('shop', '')
-                
-                # Categorização
                 if amenity == 'fuel' or 'posto' in nome.lower():
                     tipo_fmt = "⛽ Posto"; icone = "⛽"
                 elif amenity in ['restaurant', 'cafe', 'fast_food']:
@@ -367,13 +365,11 @@ def buscar_locais_osm_base(lat, lon, raio):
                     tipo_fmt = "🏪 Mercado"; icone = "🏪"
                 else:
                     continue
-                
                 e_lat, e_lon = None, None
                 if 'lat' in element and 'lon' in element:
                     e_lat = element.get('lat'); e_lon = element.get('lon')
                 elif 'center' in element:
                     e_lat = element['center'].get('lat'); e_lon = element['center'].get('lon')
-                
                 if e_lat is None or e_lon is None: continue
                 dist = calcular_distancia_gps(lat, lon, e_lat, e_lon)
                 locais.append({'nome': nome, 'tipo': tipo_fmt, 'icone': icone, 'distancia': dist, 'lat': e_lat, 'lon': e_lon})
@@ -398,7 +394,7 @@ def buscar_com_raio_progressivo(lat, lon, max_tentativas=3):
             if tentativa < len(raios) - 1: time.sleep(2)
     return [], 0
 
-# --- NOVAS FUNÇÕES PARA ABA 6 (SOS) - MANTIDAS MAS NÃO USADAS NA UI (DEAD CODE POR SEGURANÇA) ---
+# --- NOVAS FUNÇÕES PARA ABA 6 (SOS) - DEAD CODE (MANTIDO) ---
 @st.cache_data(ttl=3600)
 def buscar_sos_osm_cached(lat_round, lon_round, raio):
     return buscar_sos_osm_base(lat_round, lon_round, raio)
@@ -764,7 +760,7 @@ with tab5:
     if not GPS_AVAILABLE:
         st.error("⚠️ Biblioteca de GPS não encontrada. Adicione 'streamlit-js-eval' ao requirements.txt.")
     else:
-        st.info("📱 Permita o acesso à localização do navegador.")
+        st.info("📱 Clique nos botões abaixo para abrir o Google Maps com a busca já realizada.")
         location = get_geolocation(component_key='get_geo')
 
         if location:
@@ -774,18 +770,14 @@ with tab5:
             st.success(f"📍 Localização encontrada!")
             
             # --- BOTÕES DE BUSCA DIRETA GOOGLE MAPS (Solução Instantânea) ---
-            st.markdown("### 🔍 Busca Instantânea (Google Maps)")
+            # Mesma estrutura e classe CSS (.sos-btn) da aba 6
             col_p1, col_p2, col_p3 = st.columns(3)
-            
-            # Links robustos para busca no Google Maps (Query + Coordenadas)
             with col_p1:
-                st.markdown(f'<a href="https://www.google.com/maps/search/Posto+de+Combustivel/@{lat},{lon},15z" target="_blank" class="sos-btn">⛽ Postos</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="https://www.google.com/maps/search/Posto+de+Combustível/@{lat},{lon},15z" target="_blank" class="sos-btn">⛽ Postos</a>', unsafe_allow_html=True)
             with col_p2:
                 st.markdown(f'<a href="https://www.google.com/maps/search/Restaurante/@{lat},{lon},15z" target="_blank" class="sos-btn">🍴 Restaurantes</a>', unsafe_allow_html=True)
             with col_p3:
                 st.markdown(f'<a href="https://www.google.com/maps/search/Supermercado/@{lat},{lon},15z" target="_blank" class="sos-btn">🏪 Mercados</a>', unsafe_allow_html=True)
-            
-            st.caption("🗺️ Abre diretamente o app do Google Maps")
 
 with tab6:
     st.markdown("##### 🛠️ SOS Mecânico - Serviços de Emergência")
@@ -809,4 +801,4 @@ with tab6:
             with col_g2:
                 st.markdown(f'<a href="https://www.google.com/maps/search/Borracharia/@{lat_s},{lon_s},15z" target="_blank" class="sos-btn">🔘 Borracharias</a>', unsafe_allow_html=True)
             with col_g3:
-                st.markdown(f'<a href="https://www.google.com/maps/search/Serviço+de+Guincho/@{lat_s},{lon_s},15z" target="_blank" class="sos-btn">🛻 Guinchos</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="https://www.google.com/maps/search/Guincho+Reboque/@{lat_s},{lon_s},15z" target="_blank" class="sos-btn">🛻 Guinchos</a>', unsafe_allow_html=True)
